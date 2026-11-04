@@ -1,12 +1,12 @@
 // =====================================================================================================================
-// GeoHelper build - geo related helpers (ExifTool, map, geo services) for ThomasDaheim Java applications
+// GeoHelper build - geo related helpers (map, geo services) for ThomasDaheim Java applications
 // =====================================================================================================================
 //
 //   gradlew build  -> compile, test, jar + publishToMavenLocal (consumers use tf.GeoHelper:GeoHelper:<version>)
 //   gradlew publishToMavenLocal -> only publish, without running the tests
 //
-// Tests that need ExifTool look for it in the environment variable EXIFTOOL_PATH and then on the PATH -
-// without ExifTool they are skipped.
+// The ExifTool wrapper moved to its own library ExifToolHelper (no JavaFX / map dependencies for its users).
+// Map (GeoTagger plan 4) and geo services (plan 5) will follow here.
 // =====================================================================================================================
 
 plugins {
@@ -16,7 +16,7 @@ plugins {
 
 group = 'tf.GeoHelper'
 version = '0.1'
-description = 'Geo helpers (ExifTool, map, geo services) for ThomasDaheim Java applications'
+description = 'Geo helpers (map, geo services) for ThomasDaheim Java applications'
 
 java {
     toolchain {
@@ -30,10 +30,6 @@ repositories {
 }
 
 dependencies {
-    // BOM: one version for all jackson modules - same as GPXEditor
-    implementation platform('com.fasterxml.jackson:jackson-bom:2.21.2')
-    implementation 'com.fasterxml.jackson.core:jackson-databind'
-
     testImplementation platform('org.junit:junit-bom:5.13.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     // Gradle 9 doesn't provide the launcher automatically anymore
