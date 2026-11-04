@@ -1,0 +1,64 @@
+// =====================================================================================================================
+// GeoHelper build - geo related helpers (ExifTool, map, geo services) for ThomasDaheim Java applications
+// =====================================================================================================================
+//
+//   gradlew build  -> compile, test, jar + publishToMavenLocal (consumers use tf.GeoHelper:GeoHelper:<version>)
+//   gradlew publishToMavenLocal -> only publish, without running the tests
+//
+// Tests that need ExifTool look for it in the environment variable EXIFTOOL_PATH and then on the PATH -
+// without ExifTool they are skipped.
+// =====================================================================================================================
+
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+group = 'tf.GeoHelper'
+version = '0.1'
+description = 'Geo helpers (ExifTool, map, geo services) for ThomasDaheim Java applications'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    withSourcesJar()
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // BOM: one version for all jackson modules - same as GPXEditor
+    implementation platform('com.fasterxml.jackson:jackson-bom:2.21.2')
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    testImplementation platform('org.junit:junit-bom:5.13.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    // Gradle 9 doesn't provide the launcher automatically anymore
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:unchecked', '-Xlint:deprecation']
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    systemProperty 'java.awt.headless', 'true'
+    testLogging.showStandardStreams = true
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+        }
+    }
+}
+
+tasks.named('build') {
+    finalizedBy 'publishToMavenLocal'
+}
