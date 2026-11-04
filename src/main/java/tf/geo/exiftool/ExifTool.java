@@ -1,16 +1,22 @@
 package tf.geo.exiftool;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -29,6 +35,7 @@ public class ExifTool implements AutoCloseable {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
     // put into the line queues when a stream ends - can't occur in ExifTool output
     private static final String END_OF_STREAM = "\u0000EOS";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final Path executable;
     private final Duration timeout;
@@ -64,6 +71,44 @@ public class ExifTool implements AutoCloseable {
             throw new ExifToolException("ExifTool didn't report a version: " + result);
         }
         return result.stdout().get(0).trim();
+    }
+
+    /**
+     * Reads the given tags of all files with "-json -n -G1": numbers are numeric, keys are "Group1:Tag".
+     * Files ExifTool can't read are missing in the result or only carry an error entry.
+     */
+    public List<Map<String, Object>> readJson(List<Path> files, List<String> tags) {
+        if (files.isEmpty()) {
+            return List.of();
+        }
+        final List<String> args = new ArrayList<>(List.of("-json", "-n", "-G1"));
+        tags.forEach(tag -> args.add("-" + tag));
+        files.forEach(file -> args.add(file.toAbsolutePath().toString()));
+        final String json = execute(args).stdoutText().trim();
+        if (json.isEmpty()) {
+            return List.of();
+        }
+        try {
+            return MAPPER.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+        } catch (JsonProcessingException ex) {
+            throw new ExifToolException("Can't parse ExifTool output", ex);
+        }
+    }
+
+    /**
+     * Writes a binary tag (e.g. PreviewImage, JpgFromRaw, ThumbnailImage) to target.
+     * Returns false if the file doesn't contain the tag.
+     */
+    public boolean extractBinary(Path file, String tag, Path target) {
+        try {
+            Files.deleteIfExists(target);
+        } catch (IOException ex) {
+            throw new UncheckedIOException(ex);
+        }
+        // -W! writes the output to the file named by the format string ("%" needs escaping there)
+        final String format = target.toAbsolutePath().toString().replace("%", "%%");
+        final ExecResult result = execute(List.of("-b", "-" + tag, "-W!", format, file.toAbsolutePath().toString()));
+        return !result.hasErrors() && Files.isRegularFile(target);
     }
 
     @Override
