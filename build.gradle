@@ -6,17 +6,28 @@
 //   gradlew publishToMavenLocal -> only publish, without running the tests
 //
 // The ExifTool wrapper moved to its own library ExifToolHelper (no JavaFX / map dependencies for its users).
-// Map (GeoTagger plan 4) and geo services (plan 5) will follow here.
+// tf.geo.map: Leaflet map in a JavaFX WebView (GeoTagger plan 4); geo services (plan 5) will follow.
+//
+// JavaFX comes from the application - GeoHelper only compiles against it (compileOnly). Same wiring as GPXEditor:
+//   - JavaFX jars of the current platform on the module path for the tests
+//   - jdk.jsobject (netscape.javascript.JSObject) from JavaFX via --upgrade-module-path - the JDK module is deprecated
+//     for removal since JDK 24
+// gradlew build: the tests start JavaFX (no window) - the WebView tests need a desktop session
 // =====================================================================================================================
 
 plugins {
     id 'java-library'
     id 'maven-publish'
+    id 'com.google.osdetector' version '1.7.3'
 }
 
 group = 'tf.GeoHelper'
 version = '0.1'
 description = 'Geo helpers (map, geo services) for ThomasDaheim Java applications'
+
+// classifier of the platform specific JavaFX jars (win / mac / linux)
+def fxPlatform = osdetector.os == 'osx' ? 'mac' : osdetector.os == 'windows' ? 'win' : osdetector.os
+def javafxVersion = '25.0.1'
 
 java {
     toolchain {
@@ -30,20 +41,63 @@ repositories {
 }
 
 dependencies {
+    // JavaFX comes from the application - GeoHelper only compiles against it
+    // javafx.web requires javafx.media at runtime
+    for (module in ['javafx-base', 'javafx-graphics', 'javafx-controls', 'javafx-media', 'javafx-web', 'jdk-jsobject']) {
+        compileOnly "org.openjfx:$module:$javafxVersion:$fxPlatform"
+        testImplementation "org.openjfx:$module:$javafxVersion:$fxPlatform"
+    }
+
     testImplementation platform('org.junit:junit-bom:5.13.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     // Gradle 9 doesn't provide the launcher automatically anymore
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// maven delivers each JavaFX module twice: an empty javafx-base-25.0.1.jar and the real javafx-base-25.0.1-win.jar - keep only the latter
+def javafxTestJars = configurations.testRuntimeClasspath.filter { it.name.startsWith('javafx-') && !(it.name ==~ /javafx-[a-z]+-[\d.]+\.jar/) }
+// jdk.jsobject from JavaFX instead of the JDK - "upgradeable" module, needs --upgrade-module-path (same as GPXEditor)
+def jsobjectCompileJar = configurations.compileClasspath.filter { it.name.startsWith('jdk-jsobject-') && !(it.name ==~ /jdk-jsobject-[\d.]+\.jar/) }
+def jsobjectTestJar = configurations.testRuntimeClasspath.filter { it.name.startsWith('jdk-jsobject-') && !(it.name ==~ /jdk-jsobject-[\d.]+\.jar/) }
+
+// adds "<option> <files>" to javac / the test JVM - evaluated lazily when the task executes (same as GPXEditor)
+abstract class ModulePathArgumentProvider implements CommandLineArgumentProvider {
+    @Input
+    abstract Property<String> getOption()
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract ConfigurableFileCollection getModulePath()
+
+    ModulePathArgumentProvider() {
+        option.convention('--module-path')
+    }
+
+    @Override
+    Iterable<String> asArguments() {
+        return [option.get(), modulePath.asPath]
+    }
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.compilerArgs += ['-Xlint:unchecked', '-Xlint:deprecation']
+    options.compilerArgumentProviders.add(objects.newInstance(ModulePathArgumentProvider).tap {
+        option = '--upgrade-module-path'
+        modulePath.from(name == 'compileTestJava' ? jsobjectTestJar : jsobjectCompileJar)
+    })
 }
 
 tasks.named('test', Test) {
     useJUnitPlatform()
-    systemProperty 'java.awt.headless', 'true'
+    jvmArgumentProviders.add(objects.newInstance(ModulePathArgumentProvider).tap { modulePath.from(javafxTestJars) })
+    jvmArgumentProviders.add(objects.newInstance(ModulePathArgumentProvider).tap { option = '--upgrade-module-path'; modulePath.from(jsobjectTestJar) })
+    jvmArgs('--add-modules', 'javafx.controls,javafx.web',
+            '--enable-native-access', 'javafx.graphics',
+            '--enable-native-access', 'javafx.web',
+            '--enable-native-access', 'ALL-UNNAMED')
+    // the WebView needs a real toolkit
+    systemProperty 'java.awt.headless', 'false'
     testLogging.showStandardStreams = true
 }
 
