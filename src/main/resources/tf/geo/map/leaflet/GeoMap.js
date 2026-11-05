@@ -89,10 +89,11 @@ function geoFitBounds(coords) {
     if (coords.length === 0) {
         return;
     }
+    // no animation: the map jumps, and its state is final right away
     if (coords.length === 1) {
-        myMap.setView(coords[0], Math.max(myMap.getZoom(), 14));
+        myMap.setView(coords[0], Math.max(myMap.getZoom(), 14), { animate: false });
     } else {
-        myMap.fitBounds(coords, { padding: [20, 20], maxZoom: 16 });
+        myMap.fitBounds(coords, { padding: [20, 20], maxZoom: 16, animate: false });
     }
 }
 

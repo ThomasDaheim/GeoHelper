@@ -227,7 +227,9 @@ public class LeafletMapView extends StackPane {
      * @param position new center of the map - the zoom stays
      */
     public void panTo(LatLon position) {
-        whenReady("myMap.panTo([" + Js.number(position.latitude()) + ", " + Js.number(position.longitude()) + "]);");
+        // no animation: the map jumps, and its state is final right away
+        whenReady("myMap.panTo([" + Js.number(position.latitude()) + ", " + Js.number(position.longitude())
+                + "], {animate: false});");
     }
 
     /**

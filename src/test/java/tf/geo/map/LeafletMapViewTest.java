@@ -156,6 +156,17 @@ class LeafletMapViewTest {
     }
 
     @Test
+    void panToIsImmediate() {
+        final LeafletMapView map = FxTestSupport.readyMap();
+        FxTestSupport.onFx(() -> {
+            map.panTo(new LatLon(45.0, 12.0));
+            return null;
+        });
+        assertEquals(45.0, ((Number) js(map, "myMap.getCenter().lat")).doubleValue(), 1e-6);
+        assertEquals(12.0, ((Number) js(map, "myMap.getCenter().lng")).doubleValue(), 1e-6);
+    }
+
+    @Test
     void latLonAtRoundTrips() {
         final LeafletMapView map = FxTestSupport.readyMap();
         final LatLon position = FxTestSupport.onFx(() -> map.latLonAt(100, 80)).orElseThrow();
