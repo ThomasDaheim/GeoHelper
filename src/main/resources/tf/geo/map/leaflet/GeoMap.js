@@ -1,6 +1,8 @@
 // GeoHelper: markers by id (clustered unless selected), tracks by id, pixel <-> lat/lng
 var geoMarkers = {};
-var geoCluster = L.markerClusterGroup({ chunkedLoading: true, spiderfyOnMaxZoom: true });
+// no chunkedLoading: markers still waiting for their chunk can't be removed (removeLayer ignores them) and
+// would be added later anyway - ghost markers on the map
+var geoCluster = L.markerClusterGroup({ chunkedLoading: false, spiderfyOnMaxZoom: true });
 var geoSelected = L.layerGroup();
 var geoTracks = {};
 myMap.addLayer(geoCluster);

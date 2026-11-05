@@ -156,6 +156,39 @@ class LeafletMapViewTest {
     }
 
     @Test
+    void manyMarkersLeaveNoGhosts() throws InterruptedException {
+        final LeafletMapView map = FxTestSupport.readyMap();
+        final List<MapMarker> markers = new ArrayList<>();
+        for (int i = 0; i < 20000; i++) {
+            markers.add(new MapMarker("m" + i, new LatLon(40 + (i % 1000) / 100.0, 10 + i / 2000.0), "m" + i, MarkerColor.BLUE, false));
+        }
+        // the last marker is the one still waiting longest if the cluster adds markers in chunks
+        final List<MapMarker> lastSelected = new ArrayList<>(markers);
+        lastSelected.set(19999, new MapMarker("m19999", markers.get(19999).position(), "m19999", MarkerColor.RED, true));
+        // two separate updates - e.g. loading a big folder and selecting a file right away
+        FxTestSupport.onFx(() -> {
+            map.showMarkers(markers);
+            return null;
+        });
+        FxTestSupport.onFx(() -> {
+            map.showMarkers(lastSelected);
+            return null;
+        });
+        // the cluster may still add markers later (chunked loading) - wait until nothing changes anymore
+        int last = -1;
+        for (int i = 0; i < 50; i++) {
+            final int now = number(js(map, "geoClusteredCount()"));
+            if (now == last) {
+                break;
+            }
+            last = now;
+            Thread.sleep(200);
+        }
+        assertEquals(19999, number(js(map, "geoClusteredCount()")));
+        assertEquals(0, number(js(map, "geoCluster.getLayers().filter(function (m) { return m.geoId === 'm19999'; }).length")));
+    }
+
+    @Test
     void panToIsImmediate() {
         final LeafletMapView map = FxTestSupport.readyMap();
         FxTestSupport.onFx(() -> {
