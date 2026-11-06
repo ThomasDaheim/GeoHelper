@@ -8,6 +8,17 @@ var geoTracks = {};
 myMap.addLayer(geoCluster);
 myMap.addLayer(geoSelected);
 
+// zoomed far out the world repeats - markers and tracks exist only in the middle copy: keep the view there
+// (worldCopyJump does this while dragging only, not e.g. for zooming around the mouse)
+function geoKeepInWorld() {
+    var center = myMap.getCenter();
+    var wrapped = myMap.wrapLatLng(center);
+    if (wrapped.lng !== center.lng) {
+        myMap.setView(wrapped, myMap.getZoom(), { animate: false });
+    }
+}
+myMap.on('moveend', geoKeepInWorld);
+
 function geoRemoveMarker(id) {
     var marker = geoMarkers[id];
     if (marker) {

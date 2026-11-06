@@ -123,7 +123,9 @@ public class LeafletMapView extends StackPane {
                 .collect(Collectors.joining(",\n")) + "};");
         final StringBuilder map = new StringBuilder("var myMap = L.map('map', {center: [")
                 .append(Js.number(config.initialCenter().latitude())).append(", ")
-                .append(Js.number(config.initialCenter().longitude())).append("], zoom: ").append(config.initialZoom());
+                .append(Js.number(config.initialCenter().longitude())).append("], zoom: ").append(config.initialZoom())
+                // dragging beyond -180 / 180 jumps back to the world with the markers - see also GeoMap.js
+                .append(", worldCopyJump: true");
         if (!layers.isEmpty()) {
             map.append(", layers: [baseMaps[").append(Js.string(layers.get(0).name())).append("]]");
         }

@@ -189,6 +189,16 @@ class LeafletMapViewTest {
     }
 
     @Test
+    void viewStaysInTheWorldWithTheMarkers() {
+        final LeafletMapView map = FxTestSupport.readyMap();
+        // zoomed far out the world is shown several times - the markers are only in the middle one;
+        // e.g. zooming in again around the mouse ends up in a copy one turn further west
+        js(map, "myMap.setView([35.5, -440.0], 5, {animate: false})");
+        assertEquals(-80.0, ((Number) js(map, "myMap.getCenter().lng")).doubleValue(), 1e-6);
+        assertEquals(35.5, ((Number) js(map, "myMap.getCenter().lat")).doubleValue(), 1e-6);
+    }
+
+    @Test
     void panToIsImmediate() {
         final LeafletMapView map = FxTestSupport.readyMap();
         FxTestSupport.onFx(() -> {
