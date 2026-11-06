@@ -199,6 +199,15 @@ class LeafletMapViewTest {
     }
 
     @Test
+    void viewInsideTheWorldIsLeftAlone() {
+        final LeafletMapView map = FxTestSupport.readyMap();
+        // 11.55 wraps to 11.550000000000011 - that must not start a loop of setView / moveend
+        final Object result = js(map, "try { myMap.setView([46.5, 11.55], 10, {animate: false}); 'ok'; } catch (e) { e.message; }");
+        assertEquals("ok", result);
+        assertEquals(11.55, ((Number) js(map, "myMap.getCenter().lng")).doubleValue(), 1e-9);
+    }
+
+    @Test
     void panToIsImmediate() {
         final LeafletMapView map = FxTestSupport.readyMap();
         FxTestSupport.onFx(() -> {

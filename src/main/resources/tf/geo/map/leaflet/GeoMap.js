@@ -12,9 +12,9 @@ myMap.addLayer(geoSelected);
 // (worldCopyJump does this while dragging only, not e.g. for zooming around the mouse)
 function geoKeepInWorld() {
     var center = myMap.getCenter();
-    var wrapped = myMap.wrapLatLng(center);
-    if (wrapped.lng !== center.lng) {
-        myMap.setView(wrapped, myMap.getZoom(), { animate: false });
+    // only outside the world: wrapLatLng changes e.g. 11.55 to 11.550000000000011, comparing its result would loop
+    if (center.lng < -180 || center.lng > 180) {
+        myMap.setView(myMap.wrapLatLng(center), myMap.getZoom(), { animate: false });
     }
 }
 myMap.on('moveend', geoKeepInWorld);
