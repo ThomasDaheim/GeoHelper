@@ -1,8 +1,8 @@
 // GeoHelper: markers by id (clustered unless selected), tracks by id, pixel <-> lat/lng
 var geoMarkers = {};
-// no chunkedLoading: markers still waiting for their chunk can't be removed (removeLayer ignores them) and
-// would be added later anyway - ghost markers on the map
-var geoCluster = L.markerClusterGroup({ chunkedLoading: false, spiderfyOnMaxZoom: true });
+// geoClusterOptions is set by LeafletMapView from MapConfig - always with chunkedLoading: false: markers still
+// waiting for their chunk can't be removed (removeLayer ignores them) and would be added later anyway - ghosts
+var geoCluster = L.markerClusterGroup(geoClusterOptions);
 var geoSelected = L.layerGroup();
 var geoTracks = {};
 myMap.addLayer(geoCluster);
@@ -18,6 +18,23 @@ function geoKeepInWorld() {
     }
 }
 myMap.on('moveend', geoKeepInWorld);
+
+// ctrl + drag draws a selection rectangle (in Java) - the map must neither move nor box-zoom meanwhile
+// same as GPXEditor MapHelper.js
+function geoDisableCtrlDrag(e) {
+    if (e.originalEvent.ctrlKey) {
+        myMap.dragging.disable();
+        myMap.boxZoom.disable();
+    }
+}
+function geoEnableCtrlDrag(e) {
+    if (e.originalEvent.ctrlKey) {
+        myMap.dragging.enable();
+        myMap.boxZoom.enable();
+    }
+}
+myMap.on('mousedown', geoDisableCtrlDrag);
+myMap.on('mouseup', geoEnableCtrlDrag);
 
 function geoRemoveMarker(id) {
     var marker = geoMarkers[id];
@@ -70,9 +87,14 @@ function geoRemoveTrack(id) {
     }
 }
 
-function geoShowTrack(id, coords, color) {
+// lines: [{coords: [[lat, lng], ...], color: "..."}] - shown, hidden and removed together
+function geoShowTrack(id, lines) {
     geoRemoveTrack(id);
-    geoTracks[id] = L.polyline(coords, { color: color, weight: 3, opacity: 0.8 }).addTo(myMap);
+    var polylines = [];
+    for (var i = 0; i < lines.length; i++) {
+        polylines.push(L.polyline(lines[i].coords, { color: lines[i].color, weight: 3, opacity: 0.8 }));
+    }
+    geoTracks[id] = L.featureGroup(polylines).addTo(myMap);
 }
 
 function geoSetTrackVisible(id, visible) {

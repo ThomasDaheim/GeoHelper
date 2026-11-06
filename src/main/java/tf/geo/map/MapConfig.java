@@ -29,17 +29,20 @@ import java.util.List;
 import tf.geo.LatLon;
 
 /**
- * What the map shows at the start.
+ * What the map shows at the start and how it bundles markers.
  *
  * @param baseLayers base layers - the first one is shown, a layer control appears for more than one
  * @param initialCenter center at the start
  * @param initialZoom zoom at the start (0 - 18)
+ * @param clusterRadius markers closer than this (pixels) are bundled - markercluster can't set a minimum count
+ * @param noClusteringFromZoom from this zoom on markers aren't bundled anymore
  */
-public record MapConfig(List<MapLayer> baseLayers, LatLon initialCenter, int initialZoom) {
+public record MapConfig(List<MapLayer> baseLayers, LatLon initialCenter, int initialZoom, int clusterRadius,
+        int noClusteringFromZoom) {
     /**
-     * @return all layers without API key, centered on Central Europe
+     * @return all layers without API key, centered on Central Europe, bundling within 40 px up to zoom 14
      */
     public static MapConfig defaults() {
-        return new MapConfig(MapLayer.withoutApiKey(), new LatLon(50.0, 10.0), 5);
+        return new MapConfig(MapLayer.withoutApiKey(), new LatLon(50.0, 10.0), 5, 40, 15);
     }
 }

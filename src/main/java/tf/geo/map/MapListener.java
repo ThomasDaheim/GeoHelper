@@ -28,7 +28,7 @@ package tf.geo.map;
 import tf.geo.LatLon;
 
 /**
- * What the user does with the markers on the map - called on the JavaFX thread.
+ * What the user does on the map - called on the JavaFX thread.
  */
 public interface MapListener {
     /**
@@ -43,5 +43,15 @@ public interface MapListener {
      * @param position where it was dropped
      */
     default void markerMoved(String id, LatLon position) {
+    }
+
+    /**
+     * The user drew a rectangle with ctrl + drag - same as GPXEditor's selection of waypoints.
+     *
+     * @param southWest lower left corner
+     * @param northEast upper right corner
+     * @param shiftDown true if shift was pressed as well - e.g. to add to the selection
+     */
+    default void areaSelected(LatLon southWest, LatLon northEast, boolean shiftDown) {
     }
 }

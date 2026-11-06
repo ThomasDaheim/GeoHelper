@@ -30,6 +30,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import javafx.scene.Scene;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
+import javafx.scene.web.WebView;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import tf.geo.LatLon;
@@ -104,7 +107,7 @@ class LeafletMapViewTest {
         final CompletableFuture<Void> ready = FxTestSupport.onFx(() -> {
             new Scene(map, 800, 600);
             map.showMarkers(List.of(marker("early", 46, false)));
-            map.showTrack("t", List.of(new LatLon(46, 11), new LatLon(46.1, 11.1)), "#ff0000");
+            map.showTrack("t", List.of(new TrackLine(List.of(new LatLon(46, 11), new LatLon(46.1, 11.1)), "#ff0000")));
             return map.displayMap(MapConfig.defaults());
         });
         ready.get(30, TimeUnit.SECONDS);
@@ -116,7 +119,7 @@ class LeafletMapViewTest {
     void tracksCanBeHiddenAndRemoved() {
         final LeafletMapView map = FxTestSupport.readyMap();
         FxTestSupport.onFx(() -> {
-            map.showTrack("t", List.of(new LatLon(46, 11), new LatLon(46.1, 11.1)), "#ff0000");
+            map.showTrack("t", List.of(new TrackLine(List.of(new LatLon(46, 11), new LatLon(46.1, 11.1)), "#ff0000")));
             return null;
         });
         assertEquals(1, number(js(map, "geoVisibleTrackCount()")));
@@ -208,8 +211,64 @@ class LeafletMapViewTest {
     }
 
     @Test
-    void panToIsImmediate() {
+    void clusterOptionsComeFromTheConfig() {
         final LeafletMapView map = FxTestSupport.readyMap();
+        assertEquals(40, number(js(map, "geoCluster.options.maxClusterRadius")));
+        assertEquals(15, number(js(map, "geoCluster.options.disableClusteringAtZoom")));
+    }
+
+    @Test
+    void trackWithSeveralColouredLines() {
+        final LeafletMapView map = FxTestSupport.readyMap();
+        FxTestSupport.onFx(() -> {
+            map.showTrack("t", List.of(new TrackLine(List.of(new LatLon(46, 11), new LatLon(46.1, 11.1)), "#ff0000"),
+                    new TrackLine(List.of(new LatLon(47, 12), new LatLon(47.1, 12.1)), "darkblue")));
+            return null;
+        });
+        assertEquals(1, number(js(map, "geoTrackCount()")));
+        assertEquals(2, number(js(map, "geoTracks['t'].getLayers().length")));
+        assertEquals("darkblue", js(map, "geoTracks['t'].getLayers()[1].options.color"));
+    }
+
+    // a mouse event at x / y of the WebView (scene and WebView start at 0 / 0)
+    private static MouseEvent mouse(javafx.event.EventType<MouseEvent> type, double x, double y, boolean ctrl, boolean shift) {
+        return new MouseEvent(type, x, y, x, y, MouseButton.PRIMARY, 1, shift, ctrl, false, false,
+                true, false, false, false, false, false, null);
+    }
+
+    private static List<String> dragArea(LeafletMapView map, double fromX, double fromY, double toX, double toY) {
+        final List<String> events = new ArrayList<>();
+        FxTestSupport.onFx(() -> {
+            map.setMapListener(new MapListener() {
+                @Override
+                public void areaSelected(LatLon southWest, LatLon northEast, boolean shiftDown) {
+                    events.add(southWest.latitude() < northEast.latitude() && southWest.longitude() < northEast.longitude()
+                            ? "area " + shiftDown : "wrong corners");
+                }
+            });
+            final WebView web = map.getWebView();
+            web.fireEvent(mouse(MouseEvent.MOUSE_PRESSED, fromX, fromY, true, false));
+            web.fireEvent(mouse(MouseEvent.MOUSE_DRAGGED, toX, toY, true, false));
+            web.fireEvent(mouse(MouseEvent.MOUSE_RELEASED, toX, toY, true, false));
+            return null;
+        });
+        return events;
+    }
+
+    @Test
+    void ctrlDragSelectsAnArea() {
+        final LeafletMapView map = FxTestSupport.readyMap();
+        assertEquals(List.of("area false"), dragArea(map, 300, 200, 100, 400));
+    }
+
+    @Test
+    void ctrlClickWithoutDragSelectsNoArea() {
+        final LeafletMapView map = FxTestSupport.readyMap();
+        assertEquals(List.of(), dragArea(map, 300, 200, 301, 201));
+    }
+
+    @Test
+    void panToIsImmediate() {        final LeafletMapView map = FxTestSupport.readyMap();
         FxTestSupport.onFx(() -> {
             map.panTo(new LatLon(45.0, 12.0));
             return null;

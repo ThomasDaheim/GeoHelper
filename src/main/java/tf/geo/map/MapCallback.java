@@ -28,7 +28,6 @@ package tf.geo.map;
 import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import tf.geo.LatLon;
 
 /**
  * Bridge object "jscallback" - JavaScript in the map page calls these methods, same as in GPXEditor.
@@ -44,6 +43,11 @@ public final class MapCallback {
 
     void setListener(MapListener listener) {
         this.listener = Objects.requireNonNull(listener);
+    }
+
+    // the area selection is done in Java and reports to the same listener
+    MapListener listener() {
+        return listener;
     }
 
     /**

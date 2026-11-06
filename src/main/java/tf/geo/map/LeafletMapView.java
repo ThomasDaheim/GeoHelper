@@ -42,7 +42,12 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import javafx.beans.value.ChangeListener;
 import javafx.concurrent.Worker;
+import javafx.geometry.Point2D;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.StackPane;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Rectangle;
 import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebView;
 import netscape.javascript.JSException;
@@ -68,11 +73,77 @@ public class LeafletMapView extends StackPane {
     private final Map<String, MapMarker> shownMarkers = new LinkedHashMap<>();
     private final List<Runnable> pending = new ArrayList<>();
     private boolean ready = false;
+    // smaller rectangles count as a click
+    private static final double MIN_AREA = 3;
+    private final Rectangle selectRect = new Rectangle();
+    // where the ctrl + drag started - null while no area is drawn
+    private Point2D selectStart;
 
     public LeafletMapView() {
         getChildren().add(webView);
         // the application shows its own context menu
         webView.setContextMenuEnabled(false);
+        initAreaSelection();
+    }
+
+    // ctrl + drag draws a rectangle and reports the area - same as GPXEditor TrackMap.handleMouseCntrl*;
+    // GeoMap.js stops the map from moving meanwhile
+    private void initAreaSelection() {
+        selectRect.getStyleClass().add("selectRect");
+        selectRect.setFill(Color.rgb(30, 144, 255, 0.15));
+        selectRect.setStroke(Color.DODGERBLUE);
+        selectRect.getStrokeDashArray().setAll(4.0, 4.0);
+        selectRect.setManaged(false);
+        selectRect.setMouseTransparent(true);
+        selectRect.setVisible(false);
+        getChildren().add(selectRect);
+
+        webView.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> {
+            if (event.isControlDown() && event.getButton() == MouseButton.PRIMARY) {
+                selectStart = new Point2D(event.getX(), event.getY());
+                resizeSelection(event);
+                selectRect.setVisible(true);
+                event.consume();
+            }
+        });
+        webView.addEventFilter(MouseEvent.MOUSE_DRAGGED, event -> {
+            if (selectStart != null) {
+                resizeSelection(event);
+                event.consume();
+            }
+        });
+        webView.addEventFilter(MouseEvent.MOUSE_RELEASED, event -> {
+            if (selectStart != null) {
+                resizeSelection(event);
+                selectRect.setVisible(false);
+                selectStart = null;
+                event.consume();
+                // a click with ctrl is not an area
+                if (selectRect.getWidth() >= MIN_AREA && selectRect.getHeight() >= MIN_AREA) {
+                    reportArea(event.isShiftDown());
+                }
+            }
+        });
+    }
+
+    private void resizeSelection(MouseEvent event) {
+        selectRect.setX(Math.min(selectStart.getX(), event.getX()));
+        selectRect.setY(Math.min(selectStart.getY(), event.getY()));
+        selectRect.setWidth(Math.abs(event.getX() - selectStart.getX()));
+        selectRect.setHeight(Math.abs(event.getY() - selectStart.getY()));
+    }
+
+    private void reportArea(boolean shiftDown) {
+        final Optional<LatLon> upperLeft = latLonAt(selectRect.getX(), selectRect.getY());
+        final Optional<LatLon> lowerRight = latLonAt(selectRect.getX() + selectRect.getWidth(), selectRect.getY() + selectRect.getHeight());
+        if (upperLeft.isEmpty() || lowerRight.isEmpty()) {
+            return;
+        }
+        final LatLon southWest = new LatLon(Math.min(upperLeft.get().latitude(), lowerRight.get().latitude()),
+                Math.min(upperLeft.get().longitude(), lowerRight.get().longitude()));
+        final LatLon northEast = new LatLon(Math.max(upperLeft.get().latitude(), lowerRight.get().latitude()),
+                Math.max(upperLeft.get().longitude(), lowerRight.get().longitude()));
+        callback.listener().areaSelected(southWest, northEast, shiftDown);
     }
 
     /**
@@ -135,6 +206,10 @@ public class LeafletMapView extends StackPane {
             execScript("L.control.layers(baseMaps).addTo(myMap);");
         }
         execScript("L.control.scale({imperial: false}).addTo(myMap);");
+        // read by GeoMap.js - no chunkedLoading, see there
+        execScript("var geoClusterOptions = {maxClusterRadius: " + config.clusterRadius()
+                + ", disableClusteringAtZoom: " + config.noClusteringFromZoom()
+                + ", spiderfyOnMaxZoom: true, chunkedLoading: false};");
         runScript("GeoMap.js");
 
         ready = true;
@@ -188,14 +263,15 @@ public class LeafletMapView extends StackPane {
     }
 
     /**
-     * Shows a track as a line - replaces a track with the same id.
+     * Shows a track as lines - replaces a track with the same id. All lines are shown, hidden and removed together.
      *
      * @param id id of the track, e.g. the path of the GPX file
-     * @param points points of the track
-     * @param color CSS colour, e.g. "#e6194b"
+     * @param lines its lines, e.g. the segments, each in its own colour
      */
-    public void showTrack(String id, List<LatLon> points, String color) {
-        whenReady("geoShowTrack(" + Js.string(id) + ", " + coordinates(points) + ", " + Js.string(color) + ");");
+    public void showTrack(String id, List<TrackLine> lines) {
+        whenReady("geoShowTrack(" + Js.string(id) + ", " + lines.stream()
+                .map(line -> "{\"coords\":" + coordinates(line.points()) + ",\"color\":" + Js.string(line.color()) + "}")
+                .collect(Collectors.joining(",", "[", "]")) + ");");
     }
 
     /**
