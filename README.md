@@ -6,8 +6,11 @@ Geo related helper classes used in my other repos. Current version: v0.1
 * `tf.geo.map.LeafletMapView`: Leaflet map in a JavaFX WebView - taken over from [GPXEditor](https://github.com/ThomasDaheim/GPXEditor) and decoupled from it
   * base layers without API key (OpenStreetMap, OpenTopoMap, Esri, Google, Bing, TopPlusOpen); Mapbox and OpenCycleMap with `MapLayer.withApiKey()`
   * markers with an id, clustered unless selected; selected markers can be dragged
-  * tracks as lines, can be hidden and removed
-  * callbacks for marker clicks and drags, pixel position to lat / lon (e.g. for drag & drop and context menus)
+  * clustering set in `MapConfig`: radius (default 40 px) and the zoom from which markers aren't bundled anymore (default 15) - markercluster has no minimum count
+  * tracks as one or more lines (`TrackLine`), each with its own colour - shown, hidden and removed together
+  * callbacks for marker clicks and drags, and for an area drawn with Ctrl + drag (`MapListener.areaSelected`, as GPXEditor's waypoint selection)
+  * pixel position to lat / lon (e.g. for drag & drop and context menus)
+  * the view stays in the world with the markers when zoomed far out
 * geo services (reverse geocoding, altitude, time zone) follow with the next step of [GeoTagger](https://github.com/ThomasDaheim/GeoTagger)
 
 GPXEditor will switch to GeoHelper later on.
@@ -27,7 +30,7 @@ map.setMapListener(new MapListener() {
 map.displayMap(MapConfig.defaults());
 // all markers - only the changes are sent to the page; calls before the map is ready are kept
 map.showMarkers(List.of(new MapMarker("a.jpg", new LatLon(46.67, 11.16), "a.jpg", MarkerColor.BLUE, false)));
-map.showTrack("tour.gpx", points, "#e6194b");
+map.showTrack("tour.gpx", List.of(new TrackLine(points, "#e6194b")));
 ```
 
 ## Notes
