@@ -6,7 +6,8 @@
 //   gradlew publishToMavenLocal -> only publish, without running the tests
 //
 // The ExifTool wrapper moved to its own library ExifToolHelper (no JavaFX / map dependencies for its users).
-// tf.geo.map: Leaflet map in a JavaFX WebView (GeoTagger plan 4); geo services (plan 5) will follow.
+// tf.geo.map: Leaflet map in a JavaFX WebView (GeoTagger plan 4); tf.geo.service: reverse geocoding with GeoNames and
+// Mapbox over java.net.http (GeoTagger plan 5), elevation follows with plan 5b.
 //
 // JavaFX comes from the application - GeoHelper only compiles against it (compileOnly). Same wiring as GPXEditor:
 //   - JavaFX jars of the current platform on the module path for the tests
@@ -47,6 +48,10 @@ dependencies {
         compileOnly "org.openjfx:$module:$javafxVersion:$fxPlatform"
         testImplementation "org.openjfx:$module:$javafxVersion:$fxPlatform"
     }
+
+    // tf.geo.service: JSON answers of the geo services - same Jackson version as GeoTagger and GPXEditor
+    implementation platform('com.fasterxml.jackson:jackson-bom:2.21.2')
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
 
     testImplementation platform('org.junit:junit-bom:5.13.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
