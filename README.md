@@ -11,7 +11,14 @@ Geo related helper classes used in my other repos. Current version: v0.1
   * callbacks for marker clicks and drags, and for an area drawn with Ctrl + drag (`MapListener.areaSelected`, as GPXEditor's waypoint selection)
   * pixel position to lat / lon (e.g. for drag & drop and context menus)
   * the view stays in the world with the markers when zoomed far out
-* geo services (reverse geocoding, altitude, time zone) follow with the next step of [GeoTagger](https://github.com/ThomasDaheim/GeoTagger)
+* `tf.geo.service`: reverse geocoding behind the interface `ReverseGeocoder` - position to `Place` (country code, country, state, city, sublocation)
+  * `GeoNamesReverseGeocoder`: GeoNames `findNearbyPlaceName` over https, needs a GeoNames user enabled for the web services; no sublocation
+  * `MapboxReverseGeocoder`: Mapbox Geocoding API v6, needs an access token; sublocation from locality or neighborhood
+  * names in a chosen language (e.g. "de"), or in the service's default when the language is empty
+  * errors as `GeoServiceException` with a kind: retry later, quota used up, settings wrong, or failed
+  * one call = one request: caching, throttling (`minRequestInterval()`) and retries are up to the caller
+  * HTTP via `HttpTransport` - `JdkHttpTransport` (java.net.http with timeouts) or a fake in tests
+* elevation (SRTM, openrouteservice) follows with the next step of [GeoTagger](https://github.com/ThomasDaheim/GeoTagger)
 
 GPXEditor will switch to GeoHelper later on.
 
@@ -31,6 +38,10 @@ map.displayMap(MapConfig.defaults());
 // all markers - only the changes are sent to the page; calls before the map is ready are kept
 map.showMarkers(List.of(new MapMarker("a.jpg", new LatLon(46.67, 11.16), "a.jpg", MarkerColor.BLUE, false)));
 map.showTrack("tour.gpx", List.of(new TrackLine(points, "#e6194b")));
+
+// place of a position - GeoNames with a user name, names in German
+ReverseGeocoder geocoder = new GeoNamesReverseGeocoder("myGeoNamesUser", "de", new JdkHttpTransport());
+Optional<Place> place = geocoder.reverse(new LatLon(46.67, 11.16));   // Italien / Trentino-Südtirol / Meran
 ```
 
 ## Notes
