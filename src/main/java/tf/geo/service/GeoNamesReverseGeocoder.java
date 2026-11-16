@@ -50,8 +50,11 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
     // the free account has 1000 credits per hour - the pause keeps a run from using them up in seconds
     private static final Duration MIN_REQUEST_INTERVAL = Duration.ofMillis(250);
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    // the nearest places asked for - enough to get past the districts of a big city to the city itself
-    private static final int MAX_ROWS = 10;
+    // the nearest places asked for - enough to get past the districts of a big city to the city itself (in the centre
+    // of Barcelona the city is the 6th)
+    private static final int MAX_ROWS = 30;
+    // places within this distance in km
+    private static final int RADIUS_KM = 10;
     // feature code of a district: "section of populated place"
     private static final String DISTRICT = "PPLX";
 
@@ -86,9 +89,15 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
 
     @Override
     public List<NearbyPlace> nearby(LatLon position) throws GeoServiceException {
+        final List<NearbyPlace> nearby = ask(requestUri(position, true));
+        // nothing within the radius (desert, sea): the nearest place at all - one more request in such rare cases
+        return nearby.isEmpty() ? ask(requestUri(position, false)) : nearby;
+    }
+
+    private List<NearbyPlace> ask(URI uri) throws GeoServiceException {
         final HttpTransport.Response response;
         try {
-            response = transport.get(requestUri(position));
+            response = transport.get(uri);
         } catch (IOException ex) {
             throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "GeoNames not reachable: " + ex.getMessage(), ex);
         }
@@ -116,15 +125,28 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
 
     /**
      * @param position position to look up
-     * @return the request for this position
+     * @return the request for the places within the radius around this position
      */
     URI requestUri(LatLon position) {
+        return requestUri(position, true);
+    }
+
+    /**
+     * @param position position to look up
+     * @param withRadius true for the places within the radius, false for the nearest place only
+     * @return the request for this position
+     */
+    URI requestUri(LatLon position, boolean withRadius) {
         final StringBuilder uri = new StringBuilder(SERVICE_URL)
                 .append("?lat=").append(number(position.latitude()))
                 .append("&lng=").append(number(position.longitude()))
-                // several places: the nearest is often a district (PPLX), the city comes later
-                .append("&style=FULL&maxRows=").append(MAX_ROWS)
-                .append("&username=").append(encode(username));
+                .append("&style=FULL");
+        if (withRadius) {
+            // several places: the nearest are often districts (PPLX), the city comes later - without radius GeoNames
+            // answers with the nearest place only, whatever maxRows says (checked 16.11.2026)
+            uri.append("&radius=").append(RADIUS_KM).append("&maxRows=").append(MAX_ROWS);
+        }
+        uri.append("&username=").append(encode(username));
         if (!language.isEmpty()) {
             uri.append("&lang=").append(encode(language));
         }

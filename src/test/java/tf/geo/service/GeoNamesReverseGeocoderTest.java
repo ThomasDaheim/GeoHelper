@@ -49,8 +49,9 @@ class GeoNamesReverseGeocoderTest {
 
     @Test
     void buildsTheRequest() {
+        // without radius GeoNames answers with the nearest place only, whatever maxRows says (checked 16.11.2026)
         assertEquals(URI.create("https://secure.geonames.org/findNearbyPlaceNameJSON?lat=46.67&lng=11.16&style=FULL"
-                + "&maxRows=10&username=demo&lang=de"), geocoder(FakeTransport.answering(200, "")).requestUri(MERAN));
+                + "&radius=10&maxRows=30&username=demo&lang=de"), geocoder(FakeTransport.answering(200, "")).requestUri(MERAN));
         // without language GeoNames uses its default
         assertFalse(new GeoNamesReverseGeocoder("demo", " ", FakeTransport.answering(200, "")).requestUri(MERAN)
                 .toString().contains("lang="));
@@ -103,6 +104,21 @@ class GeoNamesReverseGeocoderTest {
     void reverseIsTheFirstOfNearby() throws GeoServiceException {
         final GeoNamesReverseGeocoder geocoder = geocoder(FakeTransport.answering(200, BARCELONA));
         assertEquals(Optional.of(geocoder.nearby(MERAN).get(0).place()), geocoder.reverse(MERAN));
+    }
+
+    @Test
+    void nothingWithinTheRadiusAsksForTheNearestPlace() throws GeoServiceException {
+        // e.g. in the desert: no place within 10 km - then the nearest one at all, as GeoNames gives it without radius
+        final FakeTransport transport = FakeTransport.answeringInTurn("{\"geonames\": []}", """
+                {"geonames": [{"name": "Baker", "fcode": "PPL", "distance": "23.4", "countryCode": "US", "countryName": "USA",
+                  "adminName1": "Kalifornien"}]}
+                """);
+
+        final List<NearbyPlace> nearby = geocoder(transport).nearby(MERAN);
+
+        assertEquals(List.of(new NearbyPlace(new Place("US", "USA", "Kalifornien", "Baker", null), 23.4)), nearby);
+        assertEquals(2, transport.requests().size());
+        assertFalse(transport.requests().get(1).toString().contains("radius="));
     }
 
     @Test

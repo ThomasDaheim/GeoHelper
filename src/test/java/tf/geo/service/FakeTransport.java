@@ -34,13 +34,21 @@ import java.util.List;
  * HTTP without network for the tests: always the same answer or the same exception, the requested URIs are kept.
  */
 final class FakeTransport implements HttpTransport {
-    private final Response response;
+    private final List<Response> responses;
     private final IOException failure;
     private final List<URI> requests = new ArrayList<>();
 
-    private FakeTransport(Response response, IOException failure) {
-        this.response = response;
+    private FakeTransport(List<Response> responses, IOException failure) {
+        this.responses = responses;
         this.failure = failure;
+    }
+
+    /**
+     * @param bodies bodies of the answers with status 200, in this order - the last one repeats
+     * @return a transport answering with these
+     */
+    static FakeTransport answeringInTurn(String... bodies) {
+        return new FakeTransport(List.of(bodies).stream().map(body -> new Response(200, body)).toList(), null);
     }
 
     /**
@@ -49,14 +57,14 @@ final class FakeTransport implements HttpTransport {
      * @return a transport answering always with these
      */
     static FakeTransport answering(int status, String body) {
-        return new FakeTransport(new Response(status, body), null);
+        return new FakeTransport(List.of(new Response(status, body)), null);
     }
 
     /**
      * @return a transport failing always with an IOException, like a lost connection
      */
     static FakeTransport failing() {
-        return new FakeTransport(null, new IOException("connection reset"));
+        return new FakeTransport(List.of(), new IOException("connection reset"));
     }
 
     /**
@@ -72,6 +80,6 @@ final class FakeTransport implements HttpTransport {
         if (failure != null) {
             throw failure;
         }
-        return response;
+        return responses.get(Math.min(requests.size(), responses.size()) - 1);
     }
 }
