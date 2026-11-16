@@ -14,6 +14,7 @@ Geo related helper classes used in my other repos. Current version: v0.1
 * `tf.geo.service`: reverse geocoding behind the interface `ReverseGeocoder` - position to `Place` (country code, country, state, city, sublocation)
   * `GeoNamesReverseGeocoder`: GeoNames `findNearbyPlaceName` over https, needs a GeoNames user enabled for the web services; the nearest place that isn't a district is the city, a district (e.g. Eixample in Barcelona) the sublocation if it is the nearest place
   * `MapboxReverseGeocoder`: Mapbox Geocoding API v6, needs an access token; sublocation from locality or neighborhood
+  * `nearby()`: the places to choose from with their distance (`NearbyPlace`), the best answer first - GeoNames lists the districts and cities of the same request, other services just their one answer
   * names in a chosen language (e.g. "de"), or in the service's default when the language is empty
   * errors as `GeoServiceException` with a kind: retry later, quota used up, settings wrong, or failed
   * one call = one request: caching, throttling (`minRequestInterval()`) and retries are up to the caller

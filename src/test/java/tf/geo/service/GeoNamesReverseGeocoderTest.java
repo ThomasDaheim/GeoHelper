@@ -26,6 +26,7 @@
 package tf.geo.service;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import tf.geo.LatLon;
@@ -76,6 +77,32 @@ class GeoNamesReverseGeocoderTest {
                 """;
         assertEquals(Optional.of(new Place("ES", "Spanien", "Katalonien", "Barcelona", "Eixample")),
                 geocoder(FakeTransport.answering(200, json)).reverse(MERAN));
+    }
+
+    // nearest places around Plaça de Catalunya with their distance in km, nearest first, shortened
+    private static final String BARCELONA = """
+            {"geonames": [
+              {"name": "Eixample", "fcode": "PPLX", "distance": "0.65", "countryCode": "ES", "countryName": "Spanien", "adminName1": "Katalonien"},
+              {"name": "el Raval", "fcode": "PPLX", "distance": "0.74", "countryCode": "ES", "countryName": "Spanien", "adminName1": "Katalonien"},
+              {"name": "Barcelona", "fcode": "PPLA", "distance": "0.94", "countryCode": "ES", "countryName": "Spanien", "adminName1": "Katalonien"},
+              {"name": "L'Hospitalet de Llobregat", "fcode": "PPLA3", "distance": "3.1", "countryCode": "ES", "countryName": "Spanien",
+               "adminName1": "Katalonien"}]}
+            """;
+
+    @Test
+    void nearbyListsDistrictsAndCitiesByDistance() throws GeoServiceException {
+        assertEquals(List.of(
+                new NearbyPlace(new Place("ES", "Spanien", "Katalonien", "Barcelona", "Eixample"), 0.65),
+                new NearbyPlace(new Place("ES", "Spanien", "Katalonien", "Barcelona", "el Raval"), 0.74),
+                new NearbyPlace(new Place("ES", "Spanien", "Katalonien", "Barcelona", null), 0.94),
+                new NearbyPlace(new Place("ES", "Spanien", "Katalonien", "L'Hospitalet de Llobregat", null), 3.1)),
+                geocoder(FakeTransport.answering(200, BARCELONA)).nearby(MERAN));
+    }
+
+    @Test
+    void reverseIsTheFirstOfNearby() throws GeoServiceException {
+        final GeoNamesReverseGeocoder geocoder = geocoder(FakeTransport.answering(200, BARCELONA));
+        assertEquals(Optional.of(geocoder.nearby(MERAN).get(0).place()), geocoder.reverse(MERAN));
     }
 
     @Test

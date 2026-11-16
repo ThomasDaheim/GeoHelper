@@ -34,6 +34,8 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import tf.geo.LatLon;
@@ -79,6 +81,11 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
 
     @Override
     public Optional<Place> reverse(LatLon position) throws GeoServiceException {
+        return nearby(position).stream().findFirst().map(NearbyPlace::place);
+    }
+
+    @Override
+    public List<NearbyPlace> nearby(LatLon position) throws GeoServiceException {
         final HttpTransport.Response response;
         try {
             response = transport.get(requestUri(position));
@@ -94,7 +101,7 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
             parseStatus(response.body());
             throw new GeoServiceException(GeoServiceException.Kind.FAILED, "GeoNames request failed (HTTP " + status + ")");
         }
-        return parse(response.body());
+        return parseNearby(response.body());
     }
 
     @Override
@@ -134,28 +141,68 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
      * JSON
      */
     static Optional<Place> parse(String json) throws GeoServiceException {
+        return parseNearby(json).stream().findFirst().map(NearbyPlace::place);
+    }
+
+    /**
+     * All places of the answer to choose from: first the best answer (see parse()), then each district with the
+     * nearest city and each city without district, by distance - without duplicates.
+     *
+     * @param json answer of GeoNames with the nearest places, nearest first
+     * @return the places, empty if GeoNames found none
+     * @throws GeoServiceException if GeoNames reports an error or the answer isn't JSON
+     */
+    static List<NearbyPlace> parseNearby(String json) throws GeoServiceException {
         final JsonNode root = parseStatus(json);
         if (root == null) {
-            return Optional.empty();
+            return List.of();
         }
         final JsonNode places = root.path("geonames");
         if (!places.isArray() || places.isEmpty()) {
-            return Optional.empty();
+            return List.of();
         }
         final JsonNode nearest = places.get(0);
         JsonNode city = null;
         for (JsonNode place : places) {
-            if (!DISTRICT.equals(text(place, "fcode"))) {
+            if (!isDistrict(place)) {
                 city = place;
                 break;
             }
         }
-        final String sublocation = DISTRICT.equals(text(nearest, "fcode")) ? text(nearest, "name") : null;
+        final String cityName = city == null ? null : text(city, "name");
         // only districts nearby: country and state from the nearest one, no city
         final JsonNode area = city != null ? city : nearest;
-        final Place place = new Place(text(area, "countryCode"), text(area, "countryName"), text(area, "adminName1"),
-                city == null ? null : text(city, "name"), sublocation);
-        return place.isEmpty() ? Optional.empty() : Optional.of(place);
+
+        final List<NearbyPlace> nearby = new ArrayList<>();
+        final Place best = new Place(text(area, "countryCode"), text(area, "countryName"), text(area, "adminName1"), cityName,
+                isDistrict(nearest) ? text(nearest, "name") : null);
+        if (!best.isEmpty()) {
+            nearby.add(new NearbyPlace(best, distance(isDistrict(nearest) || city == null ? nearest : city)));
+        }
+        for (JsonNode place : places) {
+            final Place candidate = isDistrict(place)
+                    ? new Place(text(area, "countryCode"), text(area, "countryName"), text(area, "adminName1"), cityName,
+                            text(place, "name"))
+                    : new Place(text(place, "countryCode"), text(place, "countryName"), text(place, "adminName1"),
+                            text(place, "name"), null);
+            if (!candidate.isEmpty() && nearby.stream().noneMatch(known -> known.place().equals(candidate))) {
+                nearby.add(new NearbyPlace(candidate, distance(place)));
+            }
+        }
+        return List.copyOf(nearby);
+    }
+
+    private static boolean isDistrict(JsonNode place) {
+        return DISTRICT.equals(text(place, "fcode"));
+    }
+
+    // GeoNames sends the distance in km as text
+    private static double distance(JsonNode place) {
+        try {
+            return Double.parseDouble(Objects.requireNonNullElse(text(place, "distance"), "0"));
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
     }
 
     /**

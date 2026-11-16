@@ -26,6 +26,7 @@
 package tf.geo.service;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import tf.geo.LatLon;
 
@@ -40,6 +41,18 @@ public interface ReverseGeocoder {
      * @throws GeoServiceException if the request failed - its kind tells whether a retry makes sense
      */
     Optional<Place> reverse(LatLon position) throws GeoServiceException;
+
+    /**
+     * Places near the position to choose from, e.g. the districts of a city - with one request like reverse().
+     * By default the answer of reverse() alone, with distance 0.
+     *
+     * @param position position to look up
+     * @return the places, the best answer (that of reverse()) first - empty if the service knows none there
+     * @throws GeoServiceException if the request failed - its kind tells whether a retry makes sense
+     */
+    default List<NearbyPlace> nearby(LatLon position) throws GeoServiceException {
+        return reverse(position).map(place -> List.of(new NearbyPlace(place, 0))).orElse(List.of());
+    }
 
     /**
      * @return pause the caller should keep between two requests, to stay within the limits of the service
