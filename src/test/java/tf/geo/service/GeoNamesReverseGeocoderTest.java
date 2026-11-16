@@ -49,7 +49,7 @@ class GeoNamesReverseGeocoderTest {
     @Test
     void buildsTheRequest() {
         assertEquals(URI.create("https://secure.geonames.org/findNearbyPlaceNameJSON?lat=46.67&lng=11.16&style=FULL"
-                + "&maxRows=1&username=demo&lang=de"), geocoder(FakeTransport.answering(200, "")).requestUri(MERAN));
+                + "&maxRows=10&username=demo&lang=de"), geocoder(FakeTransport.answering(200, "")).requestUri(MERAN));
         // without language GeoNames uses its default
         assertFalse(new GeoNamesReverseGeocoder("demo", " ", FakeTransport.answering(200, "")).requestUri(MERAN)
                 .toString().contains("lang="));
@@ -63,6 +63,37 @@ class GeoNamesReverseGeocoderTest {
                 """;
         assertEquals(Optional.of(new Place("IT", "Italien", "Trentino-Südtirol", "Meran", null)),
                 geocoder(FakeTransport.answering(200, json)).reverse(MERAN));
+    }
+
+    @Test
+    void sectionOfACityIsTheSublocation() throws GeoServiceException {
+        // answer at Plaça de Catalunya, shortened - districts are "sections of populated places" (PPLX)
+        final String json = """
+                {"geonames": [
+                  {"name": "Eixample", "fcode": "PPLX", "countryCode": "ES", "countryName": "Spanien", "adminName1": "Katalonien"},
+                  {"name": "el Raval", "fcode": "PPLX", "countryCode": "ES", "countryName": "Spanien", "adminName1": "Katalonien"},
+                  {"name": "Barcelona", "fcode": "PPLA", "countryCode": "ES", "countryName": "Spanien", "adminName1": "Katalonien"}]}
+                """;
+        assertEquals(Optional.of(new Place("ES", "Spanien", "Katalonien", "Barcelona", "Eixample")),
+                geocoder(FakeTransport.answering(200, json)).reverse(MERAN));
+    }
+
+    @Test
+    void cityAloneHasNoSublocation() throws GeoServiceException {
+        final String json = """
+                {"geonames": [
+                  {"name": "Kingman", "fcode": "PPLA2", "countryCode": "US", "countryName": "USA", "adminName1": "Arizona"},
+                  {"name": "Butler", "fcode": "PPL", "countryCode": "US", "countryName": "USA", "adminName1": "Arizona"}]}
+                """;
+        assertEquals(Optional.of(new Place("US", "USA", "Arizona", "Kingman", null)),
+                geocoder(FakeTransport.answering(200, json)).reverse(MERAN));
+    }
+
+    @Test
+    void invalidUserIsConfiguration() {
+        // GeoNames answers an unknown user with HTTP 401 and the status in the body (checked 16.11.2026)
+        assertEquals(GeoServiceException.Kind.CONFIGURATION, assertThrows(GeoServiceException.class, () -> geocoder(
+                FakeTransport.answering(401, status(10, "invalid user"))).reverse(MERAN)).kind());
     }
 
     @Test

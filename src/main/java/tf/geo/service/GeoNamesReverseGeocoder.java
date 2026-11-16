@@ -40,14 +40,18 @@ import tf.geo.LatLon;
 
 /**
  * Reverse geocoding with GeoNames' findNearbyPlaceName - see https://www.geonames.org/export/web-services.html.
- * Needs a (free) GeoNames account enabled for the web services. GeoNames knows no part of a city here, so the
- * sublocation stays empty.
+ * Needs a (free) GeoNames account enabled for the web services. A district of a city (feature code PPLX) becomes the
+ * sublocation, if it is the nearest place.
  */
 public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
     private static final String SERVICE_URL = "https://secure.geonames.org/findNearbyPlaceNameJSON";
     // the free account has 1000 credits per hour - the pause keeps a run from using them up in seconds
     private static final Duration MIN_REQUEST_INTERVAL = Duration.ofMillis(250);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    // the nearest places asked for - enough to get past the districts of a big city to the city itself
+    private static final int MAX_ROWS = 10;
+    // feature code of a district: "section of populated place"
+    private static final String DISTRICT = "PPLX";
 
     // status values of GeoNames, see https://www.geonames.org/export/webservice-exception.html
     private static final int AUTHORIZATION = 10;
@@ -86,6 +90,8 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
             throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "GeoNames busy (HTTP " + status + ")");
         }
         if (status != 200) {
+            // e.g. 401 for an unknown user - GeoNames tells the reason in the body
+            parseStatus(response.body());
             throw new GeoServiceException(GeoServiceException.Kind.FAILED, "GeoNames request failed (HTTP " + status + ")");
         }
         return parse(response.body());
@@ -109,7 +115,8 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
         final StringBuilder uri = new StringBuilder(SERVICE_URL)
                 .append("?lat=").append(number(position.latitude()))
                 .append("&lng=").append(number(position.longitude()))
-                .append("&style=FULL&maxRows=1")
+                // several places: the nearest is often a district (PPLX), the city comes later
+                .append("&style=FULL&maxRows=").append(MAX_ROWS)
                 .append("&username=").append(encode(username));
         if (!language.isEmpty()) {
             uri.append("&lang=").append(encode(language));
@@ -118,12 +125,45 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
     }
 
     /**
-     * @param json answer of GeoNames
-     * @return the nearest populated place, empty if GeoNames found none
+     * The city is the nearest place that isn't a district - a district (feature code PPLX, "section of populated
+     * place", e.g. Eixample in Barcelona) is the sublocation if it is the nearest place of all.
+     *
+     * @param json answer of GeoNames with the nearest places, nearest first
+     * @return the place, empty if GeoNames found none
      * @throws GeoServiceException if GeoNames reports an error (limit exceeded, unknown user, ...) or the answer isn't
      * JSON
      */
     static Optional<Place> parse(String json) throws GeoServiceException {
+        final JsonNode root = parseStatus(json);
+        if (root == null) {
+            return Optional.empty();
+        }
+        final JsonNode places = root.path("geonames");
+        if (!places.isArray() || places.isEmpty()) {
+            return Optional.empty();
+        }
+        final JsonNode nearest = places.get(0);
+        JsonNode city = null;
+        for (JsonNode place : places) {
+            if (!DISTRICT.equals(text(place, "fcode"))) {
+                city = place;
+                break;
+            }
+        }
+        final String sublocation = DISTRICT.equals(text(nearest, "fcode")) ? text(nearest, "name") : null;
+        // only districts nearby: country and state from the nearest one, no city
+        final JsonNode area = city != null ? city : nearest;
+        final Place place = new Place(text(area, "countryCode"), text(area, "countryName"), text(area, "adminName1"),
+                city == null ? null : text(city, "name"), sublocation);
+        return place.isEmpty() ? Optional.empty() : Optional.of(place);
+    }
+
+    /**
+     * @param json answer of GeoNames
+     * @return the parsed answer - null if GeoNames reports "no result"
+     * @throws GeoServiceException if GeoNames reports an error or the answer isn't JSON
+     */
+    private static JsonNode parseStatus(String json) throws GeoServiceException {
         final JsonNode root;
         try {
             root = MAPPER.readTree(json);
@@ -135,18 +175,11 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
         if (status.isObject()) {
             final int value = status.path("value").asInt();
             if (value == NO_RESULT) {
-                return Optional.empty();
+                return null;
             }
             throw new GeoServiceException(kind(value), "GeoNames: " + status.path("message").asText("error " + value));
         }
-        final JsonNode places = root.path("geonames");
-        if (!places.isArray() || places.isEmpty()) {
-            return Optional.empty();
-        }
-        final JsonNode nearest = places.get(0);
-        final Place place = new Place(text(nearest, "countryCode"), text(nearest, "countryName"), text(nearest, "adminName1"),
-                text(nearest, "name"), null);
-        return place.isEmpty() ? Optional.empty() : Optional.of(place);
+        return root;
     }
 
     private static GeoServiceException.Kind kind(int status) {

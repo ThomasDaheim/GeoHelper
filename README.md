@@ -12,7 +12,7 @@ Geo related helper classes used in my other repos. Current version: v0.1
   * pixel position to lat / lon (e.g. for drag & drop and context menus)
   * the view stays in the world with the markers when zoomed far out
 * `tf.geo.service`: reverse geocoding behind the interface `ReverseGeocoder` - position to `Place` (country code, country, state, city, sublocation)
-  * `GeoNamesReverseGeocoder`: GeoNames `findNearbyPlaceName` over https, needs a GeoNames user enabled for the web services; no sublocation
+  * `GeoNamesReverseGeocoder`: GeoNames `findNearbyPlaceName` over https, needs a GeoNames user enabled for the web services; the nearest place that isn't a district is the city, a district (e.g. Eixample in Barcelona) the sublocation if it is the nearest place
   * `MapboxReverseGeocoder`: Mapbox Geocoding API v6, needs an access token; sublocation from locality or neighborhood
   * names in a chosen language (e.g. "de"), or in the service's default when the language is empty
   * errors as `GeoServiceException` with a kind: retry later, quota used up, settings wrong, or failed
