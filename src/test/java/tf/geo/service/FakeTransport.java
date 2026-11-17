@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * HTTP without network for the tests: always the same answer or the same exception, the requested URIs are kept.
@@ -37,6 +38,8 @@ final class FakeTransport implements HttpTransport {
     private final List<Response> responses;
     private final IOException failure;
     private final List<URI> requests = new ArrayList<>();
+    private final List<String> bodies = new ArrayList<>();
+    private Map<String, String> lastHeaders = Map.of();
 
     private FakeTransport(List<Response> responses, IOException failure) {
         this.responses = responses;
@@ -74,6 +77,20 @@ final class FakeTransport implements HttpTransport {
         return requests;
     }
 
+    /**
+     * @return the bodies of the POST requests so far
+     */
+    List<String> bodies() {
+        return bodies;
+    }
+
+    /**
+     * @return the headers of the last POST request
+     */
+    Map<String, String> lastHeaders() {
+        return lastHeaders;
+    }
+
     @Override
     public Response get(URI uri) throws IOException {
         requests.add(uri);
@@ -81,5 +98,12 @@ final class FakeTransport implements HttpTransport {
             throw failure;
         }
         return responses.get(Math.min(requests.size(), responses.size()) - 1);
+    }
+
+    @Override
+    public Response post(URI uri, String json, Map<String, String> headers) throws IOException {
+        bodies.add(json);
+        lastHeaders = Map.copyOf(headers);
+        return get(uri);
     }
 }

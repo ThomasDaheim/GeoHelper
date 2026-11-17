@@ -32,6 +32,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * HTTP GET with the JDK's HttpClient - with timeouts, unlike the clients in GPXEditor.
@@ -55,12 +56,28 @@ public final class JdkHttpTransport implements HttpTransport {
                 .header("Accept", "application/json")
                 .GET()
                 .build();
+        return send(request);
+    }
+
+    @Override
+    public Response post(URI uri, String json, Map<String, String> headers) throws IOException {
+        final HttpRequest.Builder request = HttpRequest.newBuilder(uri)
+                .timeout(REQUEST_TIMEOUT)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8));
+        headers.forEach(request::header);
+        return send(request.build());
+    }
+
+    private Response send(HttpRequest request) throws IOException {
         try {
             final HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             return new Response(response.statusCode(), response.body());
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new IOException("Request interrupted: " + uri.getHost(), ex);
+            throw new IOException("Request interrupted: " + request.uri().getHost(), ex);
         }
     }
 }

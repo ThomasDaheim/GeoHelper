@@ -27,9 +27,10 @@ package tf.geo.service;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Map;
 
 /**
- * The HTTP GET the geo services need - an interface so that tests run without network.
+ * The HTTP GET and POST the geo services need - an interface so that tests run without network.
  */
 public interface HttpTransport {
     /**
@@ -47,4 +48,13 @@ public interface HttpTransport {
      * @throws IOException if the server can't be reached or doesn't answer in time
      */
     Response get(URI uri) throws IOException;
+
+    /**
+     * @param uri address to post to
+     * @param json body, sent as application/json
+     * @param headers further headers, e.g. Authorization
+     * @return the answer, whatever its status
+     * @throws IOException if the server can't be reached or doesn't answer in time
+     */
+    Response post(URI uri, String json, Map<String, String> headers) throws IOException;
 }
