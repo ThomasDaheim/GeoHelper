@@ -93,37 +93,62 @@ public final class SrtmDownloader {
     }
 
     /**
-     * Downloads the zips and puts their .hgt files into the folder - existing files stay, nothing is left half written.
+     * Downloads the zips and puts their .hgt files into the folder - valid tiles stay, broken ones are replaced, nothing
+     * is left half written. A failing download doesn't stop the others (e.g. ESA has no tiles of the open sea).
      *
      * @param tiles names like N46E011
      * @param format SRTM1 or SRTM3
      * @param folder folder of the SRTM files
      * @param progress called with (files downloaded, files in total) after each download
-     * @return the tiles that exist in the folder afterwards
-     * @throws IOException if a download fails or a zip contains an unsafe path - the tiles downloaded before stay
+     * @return the tiles in the folder afterwards, the missing ones and why they are missing
+     * @throws IOException if the folder can't be created
      */
-    public List<String> download(List<String> tiles, SrtmFormat format, Path folder, BiConsumer<Integer, Integer> progress)
+    public Result download(List<String> tiles, SrtmFormat format, Path folder, BiConsumer<Integer, Integer> progress)
             throws IOException {
         Files.createDirectories(folder);
         final List<URI> sources = sources(tiles, format);
+        final List<String> problems = new ArrayList<>();
+        final Set<String> failedTiles = new LinkedHashSet<>();
         int done = 0;
         for (URI source : sources) {
-            final Path zip = Files.createTempFile("srtm", ".zip");
             try {
-                download.download(source, zip);
-                extract(zip, folder);
-            } finally {
-                Files.deleteIfExists(zip);
+                final Path zip = Files.createTempFile("srtm", ".zip");
+                try {
+                    download.download(source, zip);
+                    extract(zip, folder);
+                } finally {
+                    Files.deleteIfExists(zip);
+                }
+            } catch (IOException ex) {
+                problems.add(String.valueOf(ex.getMessage()));
+                tiles.stream().filter(tile -> sources(List.of(tile), format).contains(source)).forEach(failedTiles::add);
             }
             progress.accept(++done, sources.size());
         }
         final List<String> present = new ArrayList<>();
+        final List<String> missing = new ArrayList<>();
         for (String tile : tiles) {
-            if (Files.isRegularFile(folder.resolve(tile + HGT))) {
+            if (SrtmTile.isTile(folder.resolve(tile + HGT))) {
                 present.add(tile);
+            } else {
+                missing.add(tile);
+                if (!failedTiles.contains(tile)) {
+                    // downloaded, but not in it - e.g. an HTML page instead of a zip
+                    problems.add(tile + ": not contained in the download");
+                }
             }
         }
-        return present;
+        return new Result(present, missing, problems);
+    }
+
+    /**
+     * Outcome of a download.
+     *
+     * @param present the tiles in the folder afterwards
+     * @param missing the tiles still missing
+     * @param problems why, e.g. "Download of ... failed (HTTP 404)"
+     */
+    public record Result(List<String> present, List<String> missing, List<String> problems) {
     }
 
     /**
@@ -202,14 +227,15 @@ public final class SrtmDownloader {
                 }
                 final String tile = fileName.substring(0, fileName.indexOf('.')).toUpperCase(Locale.ROOT);
                 final Path target = folder.resolve(tile + HGT);
-                if (Files.exists(target)) {
+                if (SrtmTile.isTile(target)) {
                     continue;
                 }
-                // written under another name first - a broken download leaves no half .hgt file
+                // written under another name first - a broken download leaves no half .hgt file; a broken file
+                // (e.g. truncated) is replaced
                 final Path part = folder.resolve(tile + HGT + ".part");
                 try {
                     Files.copy(entries, part, StandardCopyOption.REPLACE_EXISTING);
-                    Files.move(part, target, StandardCopyOption.ATOMIC_MOVE);
+                    Files.move(part, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
                 } finally {
                     Files.deleteIfExists(part);
                 }

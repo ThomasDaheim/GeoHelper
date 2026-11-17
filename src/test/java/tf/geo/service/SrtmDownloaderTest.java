@@ -39,20 +39,22 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SrtmDownloaderTest {
     @TempDir
     Path temp;
 
-    // a zip with these entries, each with a few bytes - the content doesn't matter for the downloader
+    // an SRTM3 tile with 0 m everywhere - the size makes it a tile
+    private static final byte[] TILE = new byte[2 * SrtmTestFiles.SRTM3 * SrtmTestFiles.SRTM3];
+
+    // a zip with these entries, .hgt entries with the size of an SRTM3 tile, others with a few bytes
     private static byte[] zip(String... entries) throws IOException {
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
             for (String entry : entries) {
                 zip.putNextEntry(new ZipEntry(entry));
-                zip.write(new byte[] {1, 2, 3});
+                zip.write(entry.endsWith(".hgt") ? TILE : new byte[] {1, 2, 3});
                 zip.closeEntry();
             }
         }
@@ -118,12 +120,58 @@ class SrtmDownloaderTest {
         final List<Integer> progress = new ArrayList<>();
         final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target, block));
 
-        final List<String> present = downloader.download(List.of("N46E011", "N47E011"), SrtmFormat.SRTM3, folder,
+        final SrtmDownloader.Result result = downloader.download(List.of("N46E011", "N47E011"), SrtmFormat.SRTM3, folder,
                 (done, total) -> progress.add(done));
 
         assertEquals(List.of("N46E011.hgt", "N47E011.hgt"), filesIn(folder));
-        assertEquals(List.of("N46E011", "N47E011"), present);
+        assertEquals(List.of("N46E011", "N47E011"), result.present());
+        assertTrue(result.missing().isEmpty() && result.problems().isEmpty());
         assertEquals(List.of(1), progress);
+    }
+
+    @Test
+    void unavailableSourceDoesNotStopTheOthers() throws IOException {
+        // final review 5b: ESA has no tiles of the open sea - a ferry trip must still get the tiles on land
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> {
+            if (uri.toString().contains("N43E008")) {
+                throw new IOException("Download of " + uri + " failed (HTTP 404)");
+            }
+            Files.write(target, zip("N43E009.SRTMGL1.hgt"));
+        });
+
+        final SrtmDownloader.Result result = downloader.download(List.of("N43E008", "N43E009"), SrtmFormat.SRTM1, folder,
+                (done, total) -> { });
+
+        assertEquals(List.of("N43E009"), result.present());
+        assertEquals(List.of("N43E008"), result.missing());
+        assertEquals(1, result.problems().size());
+        assertTrue(result.problems().get(0).contains("HTTP 404"), result.problems().get(0));
+    }
+
+    @Test
+    void brokenTileIsReplaced() throws IOException {
+        // final review 5b: a truncated file must not block the tile forever
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        Files.write(folder.resolve("N46E011.hgt"), new byte[] {1, 2, 3});
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target, zip("N46E011.SRTMGL1.hgt")));
+
+        final SrtmDownloader.Result result = downloader.download(List.of("N46E011"), SrtmFormat.SRTM1, folder, (done, total) -> { });
+
+        assertEquals(TILE.length, Files.size(folder.resolve("N46E011.hgt")));
+        assertEquals(List.of("N46E011"), result.present());
+    }
+
+    @Test
+    void zipWithoutTheTileReportsItMissing() throws IOException {
+        // final review 5b: e.g. an HTML page instead of a zip - the user must learn why
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target, zip("readme.txt")));
+
+        final SrtmDownloader.Result result = downloader.download(List.of("N46E011"), SrtmFormat.SRTM1, folder, (done, total) -> { });
+
+        assertEquals(List.of("N46E011"), result.missing());
+        assertEquals(List.of("N46E011: not contained in the download"), result.problems());
     }
 
     @Test
@@ -141,10 +189,11 @@ class SrtmDownloaderTest {
         final Path folder = Files.createDirectory(temp.resolve("srtm"));
         final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target, zip("../evil.hgt")));
 
-        assertThrows(IOException.class, () -> downloader.download(List.of("N46E011"), SrtmFormat.SRTM1, folder, (done, total) -> { }));
+        final SrtmDownloader.Result result = downloader.download(List.of("N46E011"), SrtmFormat.SRTM1, folder, (done, total) -> { });
 
         assertFalse(Files.exists(temp.resolve("evil.hgt")));
         assertTrue(filesIn(folder).isEmpty());
+        assertTrue(result.problems().get(0).contains("Unsafe path"), result.problems().get(0));
     }
 
     @Test
@@ -155,8 +204,10 @@ class SrtmDownloaderTest {
             throw new IOException("connection reset");
         });
 
-        assertThrows(IOException.class, () -> downloader.download(List.of("N46E011"), SrtmFormat.SRTM1, folder, (done, total) -> { }));
+        final SrtmDownloader.Result result = downloader.download(List.of("N46E011"), SrtmFormat.SRTM1, folder, (done, total) -> { });
 
         assertTrue(filesIn(folder).isEmpty());
+        assertEquals(List.of("N46E011"), result.missing());
+        assertTrue(result.problems().get(0).contains("connection reset"), result.problems().get(0));
     }
 }

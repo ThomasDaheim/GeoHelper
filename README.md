@@ -21,8 +21,9 @@ Geo related helper classes used in my other repos. Current version: v0.1
   * HTTP via `HttpTransport` - `JdkHttpTransport` (java.net.http with timeouts) or a fake in tests
 * `tf.geo.service`: elevation behind the interface `ElevationProvider` - a list of positions to a list of elevations in meters
   * `SrtmElevationProvider`: SRTM tiles (.hgt, SRTM1 or SRTM3) from a local folder, nearest grid point or bilinear (`SrtmInterpolation`), the last 8 tiles in memory; `missingTiles()` tells what to download
-  * `SrtmDownloader`: SRTM1 per tile from ESA (step.esa.int, 60° N - 56° S) or SRTM3 in blocks from viewfinderpanoramas.org (block names as in GPXEditor) - zip entries with unsafe paths are refused, no half written files
-  * `OpenRouteServiceElevationProvider`: openrouteservice /elevation/point and /elevation/line with an API key, at most 1000 points per call
+  * `SrtmDownloader`: SRTM1 per tile from ESA (step.esa.int, 60° N - 56° S) or SRTM3 in blocks from viewfinderpanoramas.org (block names as in GPXEditor) - zip entries with unsafe paths are refused, no half written files, broken tiles are replaced; a failed download doesn't stop the others, the result tells which tiles are missing and why
+  * `JdkFileDownload`: ends a download that gets no new data for a minute
+  * `OpenRouteServiceElevationProvider`: openrouteservice /elevation/point and /elevation/line with an API key, at most 1000 points per call; an answer for other points than asked for is an error
 
 GPXEditor will switch to GeoHelper later on.
 

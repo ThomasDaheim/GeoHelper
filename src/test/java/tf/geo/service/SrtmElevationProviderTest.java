@@ -26,8 +26,11 @@
 package tf.geo.service;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.OptionalDouble;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,6 +60,18 @@ class SrtmElevationProviderTest {
     void tile() throws IOException {
         // linear, so that bilinear gives exactly 1000 + row - col between the grid points
         SrtmTestFiles.write(folder, "N46E011", SrtmTestFiles.SRTM3, (row, col) -> 1000 + row - col);
+    }
+
+    @Test
+    void missingTilesOnlyLooksAtTheFileSize() throws IOException {
+        // final review 5b: called on the JavaFX thread - reading 26 MB per SRTM1 tile there froze the window. A tile
+        // locked by another program can't be read, but its size tells that it is there.
+        Files.write(folder.resolve("N45E011.hgt"), new byte[] {1, 2, 3});
+        final SrtmElevationProvider provider = new SrtmElevationProvider(folder, SrtmInterpolation.BILINEAR);
+        try (FileChannel channel = FileChannel.open(folder.resolve("N46E011.hgt"), StandardOpenOption.WRITE);
+                FileLock lock = channel.lock()) {
+            assertEquals(List.of("N45E011"), provider.missingTiles(List.of(new LatLon(46.5, 11.5), new LatLon(45.5, 11.5))));
+        }
     }
 
     @Test

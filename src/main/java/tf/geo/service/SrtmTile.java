@@ -66,6 +66,24 @@ public final class SrtmTile {
     }
 
     /**
+     * Cheap check without reading the file - e.g. for the files to download.
+     *
+     * @param file a .hgt file
+     * @return true if it exists with the size of an SRTM1 or SRTM3 tile
+     */
+    public static boolean isTile(Path file) {
+        try {
+            if (!Files.isRegularFile(file)) {
+                return false;
+            }
+            final long bytes = Files.size(file);
+            return bytes == 2L * SRTM1_SIZE * SRTM1_SIZE || bytes == 2L * SRTM3_SIZE * SRTM3_SIZE;
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
+    /**
      * @param file a .hgt file
      * @return the tile - empty if the file doesn't exist or has neither the size of SRTM1 nor of SRTM3
      * @throws UncheckedIOException if the file can't be read

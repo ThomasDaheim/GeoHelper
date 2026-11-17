@@ -86,14 +86,15 @@ public final class SrtmElevationProvider implements ElevationProvider {
 
     /**
      * @param positions positions to look up
-     * @return the tiles without a readable file in the folder, sorted, each once
+     * @return the tiles without a file of the size of a tile in the folder, sorted, each once - the files aren't read,
+     * so this is quick enough for the JavaFX thread
      */
     public List<String> missingTiles(List<LatLon> positions) {
         return positions.stream()
                 .map(SrtmTile::name)
                 .distinct()
                 .sorted()
-                .filter(name -> SrtmTile.read(file(name)).isEmpty())
+                .filter(name -> !SrtmTile.isTile(file(name)))
                 .toList();
     }
 

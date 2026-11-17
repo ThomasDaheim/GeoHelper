@@ -68,6 +68,18 @@ class OpenRouteServiceElevationProviderTest {
     }
 
     @Test
+    void answerNotMatchingThePointsFails() {
+        // final review 5b: matched by index - one point less would give each following file its neighbour's altitude
+        assertEquals(GeoServiceException.Kind.FAILED, assertThrows(GeoServiceException.class,
+                () -> ors(FakeTransport.answering(200, "{\"geometry\": {\"coordinates\": [[11.35, 46.5, 262.5]]}}"))
+                        .elevations(List.of(MERAN, BOZEN))).kind());
+        assertEquals(GeoServiceException.Kind.FAILED, assertThrows(GeoServiceException.class,
+                () -> ors(FakeTransport.answering(200,
+                        "{\"geometry\": {\"coordinates\": [[11.35, 46.5, 262.5], [11.16, 46.67, 325]]}}"))
+                        .elevations(List.of(MERAN, BOZEN))).kind());
+    }
+
+    @Test
     void moreThanABlockIsRefused() {
         final List<LatLon> positions = new ArrayList<>();
         for (int i = 0; i <= OpenRouteServiceElevationProvider.BLOCK_SIZE; i++) {

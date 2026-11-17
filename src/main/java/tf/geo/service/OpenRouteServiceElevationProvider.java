@@ -55,6 +55,8 @@ public final class OpenRouteServiceElevationProvider implements ElevationProvide
     // 40 requests per minute with the free key
     private static final Duration MIN_REQUEST_INTERVAL = Duration.ofMillis(1500);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    // degrees between the position asked for and the one answered
+    private static final double POSITION_TOLERANCE = 1e-3;
 
     private final String apiKey;
     private final HttpTransport transport;
@@ -125,7 +127,7 @@ public final class OpenRouteServiceElevationProvider implements ElevationProvide
         if (status != 200 && status != 201) {
             throw new GeoServiceException(GeoServiceException.Kind.FAILED, "openrouteservice request failed (HTTP " + status + ")");
         }
-        return parse(response.body(), positions.size(), single);
+        return parse(response.body(), positions, single);
     }
 
     @Override
@@ -137,8 +139,9 @@ public final class OpenRouteServiceElevationProvider implements ElevationProvide
         return MAPPER.createArrayNode().add(position.longitude()).add(position.latitude());
     }
 
-    // geometry.coordinates: [lon, lat, ele] for a point, a list of those for a line
-    private static List<OptionalDouble> parse(String json, int count, boolean single) throws GeoServiceException {
+    // geometry.coordinates: [lon, lat, ele] for a point, a list of those for a line - matched by index, so each point
+    // must be the one asked for (final review 5b): otherwise files would get the altitude of their neighbours
+    private static List<OptionalDouble> parse(String json, List<LatLon> positions, boolean single) throws GeoServiceException {
         final JsonNode coordinates;
         try {
             coordinates = MAPPER.readTree(json).path("geometry").path("coordinates");
@@ -146,15 +149,27 @@ public final class OpenRouteServiceElevationProvider implements ElevationProvide
             throw new GeoServiceException(GeoServiceException.Kind.FAILED,
                     "openrouteservice answered with invalid JSON: " + ex.getOriginalMessage(), ex);
         }
-        final List<OptionalDouble> result = new ArrayList<>(count);
-        if (single) {
-            result.add(elevation(coordinates));
-        } else {
-            for (int i = 0; i < count; i++) {
-                result.add(elevation(coordinates.path(i)));
+        if (!single && (!coordinates.isArray() || coordinates.size() != positions.size())) {
+            throw new GeoServiceException(GeoServiceException.Kind.FAILED, "openrouteservice answered with "
+                    + coordinates.size() + " points for " + positions.size());
+        }
+        final List<OptionalDouble> result = new ArrayList<>(positions.size());
+        for (int i = 0; i < positions.size(); i++) {
+            final JsonNode point = single ? coordinates : coordinates.path(i);
+            if (!matches(point, positions.get(i))) {
+                throw new GeoServiceException(GeoServiceException.Kind.FAILED,
+                        "openrouteservice answered for another position than " + positions.get(i));
             }
+            result.add(elevation(point));
         }
         return result;
+    }
+
+    // ORS rounds the coordinates - a thousandth of a degree (about 100 m) is far closer than the next photo usually is
+    private static boolean matches(JsonNode point, LatLon position) {
+        return point.path(0).isNumber() && point.path(1).isNumber()
+                && Math.abs(point.path(0).asDouble() - position.longitude()) < POSITION_TOLERANCE
+                && Math.abs(point.path(1).asDouble() - position.latitude()) < POSITION_TOLERANCE;
     }
 
     private static OptionalDouble elevation(JsonNode point) {

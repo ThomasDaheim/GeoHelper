@@ -30,15 +30,26 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
- * Downloads with the JDK's HttpClient - large files (SRTM blocks have up to about 40 MB) with a long timeout.
+ * Downloads with the JDK's HttpClient - large files (SRTM blocks have up to about 40 MB). The timeout of the JDK ends
+ * with the response headers, so the body is watched as well: no new data for a while ends the download.
  */
 public final class JdkFileDownload implements FileDownload {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(5);
+    // until the response headers arrive
+    private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(1);
+    // no new data in the body for this long: stalled
+    private static final Duration IDLE_TIMEOUT = Duration.ofMinutes(1);
+    private static final long CHECK_MILLIS = 250;
     // a generic name - no personal data such as an e-mail address
     private static final String USER_AGENT = "GeoHelper";
 
@@ -46,7 +57,27 @@ public final class JdkFileDownload implements FileDownload {
             .connectTimeout(CONNECT_TIMEOUT)
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
+    private final Duration idleTimeout;
 
+    /**
+     * Downloads that end after a minute without new data.
+     */
+    public JdkFileDownload() {
+        this(IDLE_TIMEOUT);
+    }
+
+    /**
+     * @param idleTimeout no new data for this long ends the download - shorter in tests
+     */
+    JdkFileDownload(Duration idleTimeout) {
+        this.idleTimeout = Objects.requireNonNull(idleTimeout);
+    }
+
+    /**
+     * @param uri what to download
+     * @param target where to put it
+     * @throws IOException if the server isn't reachable, doesn't answer with HTTP 200, or the download stalls
+     */
     @Override
     public void download(URI uri, Path target) throws IOException {
         final HttpRequest request = HttpRequest.newBuilder(uri)
@@ -54,12 +85,33 @@ public final class JdkFileDownload implements FileDownload {
                 .header("User-Agent", USER_AGENT)
                 .GET()
                 .build();
+        final CompletableFuture<HttpResponse<Path>> response = client.sendAsync(request, HttpResponse.BodyHandlers.ofFile(target));
+        long size = -1;
+        long lastProgress = System.nanoTime();
         try {
-            final HttpResponse<Path> response = client.send(request, HttpResponse.BodyHandlers.ofFile(target));
-            if (response.statusCode() != 200) {
-                throw new IOException("Download of " + uri + " failed (HTTP " + response.statusCode() + ")");
+            while (true) {
+                try {
+                    final int status = response.get(CHECK_MILLIS, TimeUnit.MILLISECONDS).statusCode();
+                    if (status != 200) {
+                        throw new IOException("Download of " + uri + " failed (HTTP " + status + ")");
+                    }
+                    return;
+                } catch (TimeoutException ex) {
+                    final long current = Files.exists(target) ? Files.size(target) : 0;
+                    if (current != size) {
+                        size = current;
+                        lastProgress = System.nanoTime();
+                    } else if (System.nanoTime() - lastProgress > idleTimeout.toNanos()) {
+                        response.cancel(true);
+                        throw new IOException("Download of " + uri + " stalled - no data for " + idleTimeout.toSeconds() + " s");
+                    }
+                }
             }
+        } catch (ExecutionException ex) {
+            final Throwable cause = ex.getCause();
+            throw cause instanceof IOException io ? io : new IOException("Download of " + uri + " failed: " + cause, cause);
         } catch (InterruptedException ex) {
+            response.cancel(true);
             Thread.currentThread().interrupt();
             throw new IOException("Download of " + uri + " interrupted", ex);
         }
