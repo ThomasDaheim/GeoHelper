@@ -122,6 +122,38 @@ class GeoNamesReverseGeocoderTest {
     }
 
     @Test
+    void historicalPlacesAreIgnored() throws GeoServiceException {
+        // comparison with GeoSetter (19.11.2026): GeoNames lists dioceses (PPLCH, historical capital) and medieval
+        // counties (PPLH, historical populated place) among the places - they were taken as city; abandoned (PPLQ)
+        // and destroyed (PPLW) places are no better
+        final String json = """
+                {"geonames": [
+                  {"name": "Roman Catholic Diocese of Como", "fcode": "PPLCH", "distance": "0.2", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Contea di Bergamo (medievale)", "fcode": "PPLH", "distance": "0.3", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Borgo Vico", "fcode": "PPLX", "distance": "0.4", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Rovine", "fcode": "PPLQ", "distance": "0.5", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Distrutto", "fcode": "PPLW", "distance": "0.6", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Como", "fcode": "PPLA2", "distance": "0.8", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"}]}
+                """;
+
+        final List<NearbyPlace> nearby = geocoder(FakeTransport.answering(200, json)).nearby(MERAN);
+
+        assertEquals(new Place("IT", "Italien", "Lombardei", "Como", "Borgo Vico"), nearby.get(0).place());
+        assertEquals(List.of("Como"), nearby.stream().map(place -> place.place().city()).distinct().toList());
+        assertTrue(nearby.stream().noneMatch(place -> "Roman Catholic Diocese of Como".equals(place.place().sublocation())));
+    }
+
+    @Test
+    void onlyHistoricalPlacesGiveNothing() throws GeoServiceException {
+        final String json = """
+                {"geonames": [
+                  {"name": "Contea di Bergamo (medievale)", "fcode": "PPLH", "distance": "0.3", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"}]}
+                """;
+
+        assertEquals(List.of(), geocoder(FakeTransport.answering(200, json)).nearby(MERAN));
+    }
+
+    @Test
     void cityAloneHasNoSublocation() throws GeoServiceException {
         final String json = """
                 {"geonames": [

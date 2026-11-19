@@ -38,12 +38,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import tf.geo.LatLon;
 
 /**
  * Reverse geocoding with GeoNames' findNearbyPlaceName - see https://www.geonames.org/export/web-services.html.
  * Needs a (free) GeoNames account enabled for the web services. A district of a city (feature code PPLX) becomes the
- * sublocation, if it is the nearest place.
+ * sublocation, if it is the nearest place. Historical, abandoned and destroyed places (PPLCH, PPLH, PPLQ, PPLW) are
+ * ignored.
  */
 public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
     private static final String SERVICE_URL = "https://secure.geonames.org/findNearbyPlaceNameJSON";
@@ -57,6 +59,10 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
     private static final int RADIUS_KM = 10;
     // feature code of a district: "section of populated place"
     private static final String DISTRICT = "PPLX";
+    // places nobody can be in today - historical capital (e.g. "Roman Catholic Diocese of Como"), historical populated
+    // place (e.g. "Contea di Bergamo (medievale)"), abandoned, destroyed; GeoNames lists them among the nearby places
+    // (comparison with GeoSetter 19.11.2026)
+    private static final Set<String> HISTORICAL = Set.of("PPLCH", "PPLH", "PPLQ", "PPLW");
 
     // status values of GeoNames, see https://www.geonames.org/export/webservice-exception.html
     private static final int AUTHORIZATION = 10;
@@ -179,8 +185,15 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
         if (root == null) {
             return List.of();
         }
-        final JsonNode places = root.path("geonames");
-        if (!places.isArray() || places.isEmpty()) {
+        final List<JsonNode> places = new ArrayList<>();
+        root.path("geonames").forEach(place -> {
+            final String code = text(place, "fcode");
+            // without a feature code the place counts - Set.of() doesn't allow contains(null)
+            if (code == null || !HISTORICAL.contains(code)) {
+                places.add(place);
+            }
+        });
+        if (places.isEmpty()) {
             return List.of();
         }
         final JsonNode nearest = places.get(0);
