@@ -45,7 +45,7 @@ import tf.geo.LatLon;
  * Reverse geocoding with GeoNames' findNearbyPlaceName - see https://www.geonames.org/export/web-services.html.
  * Needs a (free) GeoNames account enabled for the web services. A district of a city (feature code PPLX) becomes the
  * sublocation, if it is the nearest place. Historical, abandoned and destroyed places (PPLCH, PPLH, PPLQ, PPLW) are
- * ignored.
+ * ignored. An answer with districts only gets the town from a second request for towns only.
  */
 public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
     private static final String SERVICE_URL = "https://secure.geonames.org/findNearbyPlaceNameJSON";
@@ -63,6 +63,8 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
     // place (e.g. "Contea di Bergamo (medievale)"), abandoned, destroyed; GeoNames lists them among the nearby places
     // (comparison with GeoSetter 19.11.2026)
     private static final Set<String> HISTORICAL = Set.of("PPLCH", "PPLH", "PPLQ", "PPLW");
+    // filter of findNearbyPlaceName: populated places with more than 1000 inhabitants - towns, no districts
+    private static final String TOWNS = "cities1000";
 
     // status values of GeoNames, see https://www.geonames.org/export/webservice-exception.html
     private static final int AUTHORIZATION = 10;
@@ -95,12 +97,22 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
 
     @Override
     public List<NearbyPlace> nearby(LatLon position) throws GeoServiceException {
-        final List<NearbyPlace> nearby = ask(requestUri(position, true));
-        // nothing within the radius (desert, sea): the nearest place at all - one more request in such rare cases
-        return nearby.isEmpty() ? ask(requestUri(position, false)) : nearby;
+        List<JsonNode> places = ask(requestUri(position, true));
+        if (places.isEmpty()) {
+            // nothing within the radius (desert, sea): the nearest place at all - one more request in such rare cases
+            places = ask(requestUri(position, false));
+        }
+        if (!places.isEmpty() && places.stream().allMatch(GeoNamesReverseGeocoder::isDistrict)) {
+            // only districts, e.g. at Milano Centrale the 30 nearest places are districts of Milan: the towns nearby
+            // in a request of their own (test folder 19.11.2026)
+            final List<JsonNode> withTowns = new ArrayList<>(places);
+            withTowns.addAll(ask(townsUri(position)));
+            places = withTowns;
+        }
+        return build(places);
     }
 
-    private List<NearbyPlace> ask(URI uri) throws GeoServiceException {
+    private List<JsonNode> ask(URI uri) throws GeoServiceException {
         final HttpTransport.Response response;
         try {
             response = transport.get(uri);
@@ -116,7 +128,7 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
             parseStatus(response.body());
             throw new GeoServiceException(GeoServiceException.Kind.FAILED, "GeoNames request failed (HTTP " + status + ")");
         }
-        return parseNearby(response.body());
+        return places(response.body());
     }
 
     @Override
@@ -152,6 +164,24 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
             // answers with the nearest place only, whatever maxRows says (checked 16.11.2026)
             uri.append("&radius=").append(RADIUS_KM).append("&maxRows=").append(MAX_ROWS);
         }
+        return withUserAndLanguage(uri);
+    }
+
+    /**
+     * @param position position to look up
+     * @return the request for the towns (more than 1000 inhabitants, no districts) within the radius
+     */
+    URI townsUri(LatLon position) {
+        final StringBuilder uri = new StringBuilder(SERVICE_URL)
+                .append("?lat=").append(number(position.latitude()))
+                .append("&lng=").append(number(position.longitude()))
+                .append("&style=FULL")
+                .append("&radius=").append(RADIUS_KM).append("&maxRows=").append(MAX_ROWS)
+                .append("&cities=").append(TOWNS);
+        return withUserAndLanguage(uri);
+    }
+
+    private URI withUserAndLanguage(StringBuilder uri) {
         uri.append("&username=").append(encode(username));
         if (!language.isEmpty()) {
             uri.append("&lang=").append(encode(language));
@@ -181,11 +211,16 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
      * @throws GeoServiceException if GeoNames reports an error or the answer isn't JSON
      */
     static List<NearbyPlace> parseNearby(String json) throws GeoServiceException {
+        return build(places(json));
+    }
+
+    // the places of the answer, nearest first - without historical, abandoned and destroyed ones
+    private static List<JsonNode> places(String json) throws GeoServiceException {
         final JsonNode root = parseStatus(json);
-        if (root == null) {
-            return List.of();
-        }
         final List<JsonNode> places = new ArrayList<>();
+        if (root == null) {
+            return places;
+        }
         root.path("geonames").forEach(place -> {
             final String code = text(place, "fcode");
             // without a feature code the place counts - Set.of() doesn't allow contains(null)
@@ -193,6 +228,11 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
                 places.add(place);
             }
         });
+        return places;
+    }
+
+    // see parseNearby()
+    private static List<NearbyPlace> build(List<JsonNode> places) {
         if (places.isEmpty()) {
             return List.of();
         }

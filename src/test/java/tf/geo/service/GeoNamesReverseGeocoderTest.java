@@ -144,6 +144,40 @@ class GeoNamesReverseGeocoderTest {
     }
 
     @Test
+    void onlyDistrictsAsksForTheTownSeparately() throws GeoServiceException {
+        // test folder 19.11.2026: at Milano Centrale the 30 nearest places are districts of Milan - Milan itself (at the
+        // cathedral, 2 km away) isn't among them; a second request for towns only (cities1000) brings it
+        final String districts = """
+                {"geonames": [
+                  {"name": "Centrale", "fcode": "PPLX", "distance": "0.2", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Greco", "fcode": "PPLX", "distance": "1.4", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Roman Catholic Archidiocese of Milan", "fcode": "PPLCH", "distance": "2.0", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"}]}
+                """;
+        final String towns = """
+                {"geonames": [
+                  {"name": "Mailand", "fcode": "PPLA", "distance": "2.1", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Sesto San Giovanni", "fcode": "PPLA3", "distance": "4.8", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"}]}
+                """;
+        final FakeTransport transport = FakeTransport.answeringInTurn(districts, towns);
+
+        final List<NearbyPlace> nearby = geocoder(transport).nearby(MERAN);
+
+        assertEquals(new Place("IT", "Italien", "Lombardei", "Mailand", "Centrale"), nearby.get(0).place());
+        assertEquals(2, transport.requests().size());
+        assertTrue(transport.requests().get(1).toString().contains("cities=cities1000"), transport.requests().get(1).toString());
+        assertTrue(nearby.stream().anyMatch(place -> new Place("IT", "Italien", "Lombardei", "Sesto San Giovanni", null).equals(place.place())));
+    }
+
+    @Test
+    void cityInTheAnswerNeedsNoSecondRequest() throws GeoServiceException {
+        final FakeTransport transport = FakeTransport.answeringInTurn(BARCELONA);
+
+        geocoder(transport).nearby(MERAN);
+
+        assertEquals(1, transport.requests().size());
+    }
+
+    @Test
     void onlyHistoricalPlacesGiveNothing() throws GeoServiceException {
         final String json = """
                 {"geonames": [
