@@ -35,6 +35,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalDouble;
@@ -110,22 +111,32 @@ public final class OpenRouteServiceElevationProvider implements ElevationProvide
             throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "openrouteservice not reachable: " + ex.getMessage(), ex);
         }
         final int status = response.status();
+        // what openrouteservice says - appended to our messages (plan 7)
+        final String serviceText = errorText(response.body());
+        // also a plain text answer like "Quota exceeded"
+        final boolean quota = response.body() != null && response.body().toLowerCase(Locale.ROOT).contains("quota");
         if (status == 401 || status == 403) {
-            if (response.body() != null && response.body().contains("Quota exceeded")) {
-                throw new GeoServiceException(GeoServiceException.Kind.QUOTA_EXCEEDED, "openrouteservice: quota exceeded");
+            if (quota) {
+                throw new GeoServiceException(GeoServiceException.Kind.QUOTA_EXCEEDED, "openrouteservice: quota exceeded" + suffix(serviceText));
             }
             throw new GeoServiceException(GeoServiceException.Kind.CONFIGURATION,
-                    "openrouteservice API key rejected (HTTP " + status + ")");
+                    "openrouteservice API key rejected (HTTP " + status + ")" + suffix(serviceText));
+        }
+        if (status == 429 && quota) {
+            // a used-up daily quota may come as 429 - waiting a few seconds won't help
+            throw new GeoServiceException(GeoServiceException.Kind.QUOTA_EXCEEDED, "openrouteservice: quota exceeded" + suffix(serviceText));
         }
         if (status == 429 || status >= 500) {
-            throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "openrouteservice busy (HTTP " + status + ")");
+            throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE,
+                    "openrouteservice busy (HTTP " + status + ")" + suffix(serviceText));
         }
         if (status == 404) {
             // outside the data of openrouteservice
             return empty(positions.size());
         }
         if (status != 200 && status != 201) {
-            throw new GeoServiceException(GeoServiceException.Kind.FAILED, "openrouteservice request failed (HTTP " + status + ")");
+            throw new GeoServiceException(GeoServiceException.Kind.FAILED,
+                    "openrouteservice request failed (HTTP " + status + ")" + suffix(serviceText));
         }
         return parse(response.body(), positions, single);
     }
@@ -133,6 +144,27 @@ public final class OpenRouteServiceElevationProvider implements ElevationProvide
     @Override
     public String name() {
         return "openrouteservice";
+    }
+
+    // the error text of an answer: {"error": "text"} or {"error": {"code": 2003, "message": "text"}} - empty if none
+    private static String errorText(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        try {
+            final JsonNode error = MAPPER.readTree(body).path("error");
+            if (error.isTextual()) {
+                return error.asText().trim();
+            }
+            return error.path("message").isTextual() ? error.path("message").asText().trim() : "";
+        } catch (JsonProcessingException ex) {
+            // e.g. an HTML page of a proxy
+            return "";
+        }
+    }
+
+    private static String suffix(String text) {
+        return text.isEmpty() ? "" : ": " + text;
     }
 
     private static ArrayNode coordinates(LatLon position) {

@@ -102,6 +102,29 @@ class OpenRouteServiceElevationProviderTest {
     }
 
     @Test
+    void serviceTextIsInTheMessage() {
+        // plan 7: the user learns what openrouteservice says, not only the HTTP status
+        final GeoServiceException rejected = assertThrows(GeoServiceException.class,
+                () -> ors(FakeTransport.answering(403, "{\"error\": \"Access to this API has been disallowed\"}")).elevations(List.of(MERAN)));
+        assertTrue(rejected.getMessage().contains("Access to this API has been disallowed"), rejected.getMessage());
+        final GeoServiceException failed = assertThrows(GeoServiceException.class,
+                () -> ors(FakeTransport.answering(400, "{\"error\": {\"code\": 2003, \"message\": \"Parameter 'geometry' has incorrect value\"}}"))
+                        .elevations(List.of(MERAN)));
+        assertTrue(failed.getMessage().contains("Parameter 'geometry'"), failed.getMessage());
+    }
+
+    @Test
+    void quotaAnsweredWith429IsQuota() {
+        assertEquals(GeoServiceException.Kind.QUOTA_EXCEEDED, assertThrows(GeoServiceException.class,
+                () -> ors(FakeTransport.answering(429, "{\"error\": \"Rate limit exceeded - daily quota\"}")).elevations(List.of(MERAN))).kind());
+        assertEquals(GeoServiceException.Kind.RETRYABLE, assertThrows(GeoServiceException.class,
+                () -> ors(FakeTransport.answering(429, "{}")).elevations(List.of(MERAN))).kind());
+        // not JSON - still recognised
+        assertEquals(GeoServiceException.Kind.QUOTA_EXCEEDED, assertThrows(GeoServiceException.class,
+                () -> ors(FakeTransport.answering(403, "Quota exceeded")).elevations(List.of(MERAN))).kind());
+    }
+
+    @Test
     void outsideTheDataIsEmpty() throws GeoServiceException {
         final List<OptionalDouble> elevations = ors(FakeTransport.answering(404, "{\"error\": \"no data\"}"))
                 .elevations(List.of(MERAN, BOZEN));
