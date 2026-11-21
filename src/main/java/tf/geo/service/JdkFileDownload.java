@@ -76,6 +76,7 @@ public final class JdkFileDownload implements FileDownload {
     /**
      * @param uri what to download
      * @param target where to put it
+     * @throws FileNotOnServerException if the server doesn't have the file (HTTP 404)
      * @throws IOException if the server isn't reachable, doesn't answer with HTTP 200, or the download stalls
      */
     @Override
@@ -92,6 +93,9 @@ public final class JdkFileDownload implements FileDownload {
             while (true) {
                 try {
                     final int status = response.get(CHECK_MILLIS, TimeUnit.MILLISECONDS).statusCode();
+                    if (status == 404) {
+                        throw new FileNotOnServerException(uri);
+                    }
                     if (status != 200) {
                         throw new IOException("Download of " + uri + " failed (HTTP " + status + ")");
                     }

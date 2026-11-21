@@ -28,9 +28,12 @@ package tf.geo.service;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -39,6 +42,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -51,6 +56,10 @@ public final class SrtmDownloader {
     private static final String SRTM3_URL = "https://viewfinderpanoramas.org/dem3/";
     private static final String SRTM3_ANTARCTICA_URL = "https://viewfinderpanoramas.org/ANTDEM3/";
     private static final String HGT = ".hgt";
+    private static final String PART = ".part";
+    private static final String TEMP_PREFIX = "geohelper-srtm-";
+    private static final Duration LEFTOVER_AGE = Duration.ofHours(1);
+    private static final Pattern TILE_NAME = Pattern.compile("[NS]\\d{2}[EW]\\d{3}");
 
     // blocks of viewfinderpanoramas with names of their own - see GPXEditor's SRTMDownloader
     private static final Set<String> V2 = Set.of("R33", "R34", "R35", "R36", "R37", "R38",
@@ -77,7 +86,7 @@ public final class SrtmDownloader {
 
     /**
      * @param tiles names like N46E011
-     * @param format SRTM1 or SRTM3
+     * @param format SRTM1 (tiles outside 60° N - 56° S still come as SRTM3 - ESA has no SRTM1 there) or SRTM3
      * @return the files to download for them, each once (SRTM3: one block contains several tiles)
      */
     public List<URI> sources(List<String> tiles, SrtmFormat format) {
@@ -109,22 +118,30 @@ public final class SrtmDownloader {
     public Result download(List<String> tiles, SrtmFormat format, Path folder, BiConsumer<Integer, Integer> progress)
             throws IOException {
         Files.createDirectories(folder);
+        final Path tempFolder = Path.of(System.getProperty("java.io.tmpdir"));
+        removeLeftovers(folder, tempFolder, Instant.now());
         final List<URI> sources = sources(tiles, format);
         final List<String> problems = new ArrayList<>();
         final Set<String> failedTiles = new LinkedHashSet<>();
+        final List<String> notOnServer = new ArrayList<>();
         int done = 0;
         for (URI source : sources) {
+            final List<String> fromSource = tiles.stream().filter(tile -> sources(List.of(tile), format).contains(source)).toList();
             try {
-                final Path zip = Files.createTempFile("srtm", ".zip");
+                final Path zip = Files.createTempFile(tempFolder, TEMP_PREFIX, ".zip");
                 try {
                     download.download(source, zip);
-                    extract(zip, folder);
+                    // SRTM3 blocks hold many tiles - only the SRTM1 file of a single tile can be an upgrade
+                    extract(zip, folder, source.toString().startsWith(SRTM1_URL) ? SrtmFormat.SRTM1 : SrtmFormat.SRTM3);
                 } finally {
                     Files.deleteIfExists(zip);
                 }
             } catch (IOException ex) {
                 problems.add(String.valueOf(ex.getMessage()));
-                tiles.stream().filter(tile -> sources(List.of(tile), format).contains(source)).forEach(failedTiles::add);
+                failedTiles.addAll(fromSource);
+                if (ex instanceof FileNotOnServerException) {
+                    notOnServer.addAll(fromSource);
+                }
             }
             progress.accept(++done, sources.size());
         }
@@ -143,17 +160,52 @@ public final class SrtmDownloader {
                 }
             }
         }
-        return new Result(present, missing, problems);
+        return new Result(present, missing, problems, notOnServer);
     }
 
     /**
      * Outcome of a download.
      *
-     * @param present the tiles in the folder afterwards
-     * @param missing the tiles still missing
-     * @param problems why, e.g. "Download of ... failed (HTTP 404)"
+     * @param present the tiles in the wanted format afterwards - SRTM1 where SRTM1 was wanted and ESA has it, SRTM1 or
+     *     SRTM3 where SRTM3 was wanted
+     * @param missing the tiles not in the wanted format afterwards, e.g. still SRTM3 where SRTM1 was wanted
+     * @param problems why, e.g. "Download of ... failed (HTTP 500)"
+     * @param notOnServer the tiles whose download the server doesn't have (HTTP 404) - e.g. ESA has no tiles of the
+     *     open sea
      */
-    public record Result(List<String> present, List<String> missing, List<String> problems) {
+    public record Result(List<String> present, List<String> missing, List<String> problems, List<String> notOnServer) {
+    }
+
+    /**
+     * Removes what an aborted download left behind - .part files in the SRTM folder and temporary zips - once they are
+     * older than an hour; younger ones may belong to a download still running. Best effort: what can't be removed stays.
+     *
+     * @param folder folder of the SRTM files
+     * @param tempFolder folder of the temporary zips
+     * @param now the current time
+     */
+    static void removeLeftovers(Path folder, Path tempFolder, Instant now) {
+        removeOld(folder, name -> name.endsWith(HGT + PART), now);
+        removeOld(tempFolder, name -> name.startsWith(TEMP_PREFIX) && name.endsWith(".zip"), now);
+    }
+
+    // regular files only - nothing else of the folders is touched
+    private static void removeOld(Path folder, Predicate<String> ours, Instant now) {
+        final Instant limit = now.minus(LEFTOVER_AGE);
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(folder)) {
+            for (Path file : files) {
+                try {
+                    if (ours.test(file.getFileName().toString()) && Files.isRegularFile(file)
+                            && Files.getLastModifiedTime(file).toInstant().isBefore(limit)) {
+                        Files.deleteIfExists(file);
+                    }
+                } catch (IOException ex) {
+                    // in use or gone meanwhile - the next download tries again
+                }
+            }
+        } catch (IOException ex) {
+            // folder not readable - nothing to clean up
+        }
     }
 
     /**
@@ -218,8 +270,8 @@ public final class SrtmDownloader {
         return result;
     }
 
-    // the .hgt files of the zip, flat into the folder - ESA's N46E011.SRTMGL1.hgt becomes N46E011.hgt
-    private static void extract(Path zip, Path folder) throws IOException {
+    // the tiles of the zip, flat into the folder - ESA's N46E011.SRTMGL1.hgt becomes N46E011.hgt
+    private static void extract(Path zip, Path folder, SrtmFormat sourceFormat) throws IOException {
         try (InputStream in = Files.newInputStream(zip); ZipInputStream entries = new ZipInputStream(in)) {
             for (ZipEntry entry = entries.getNextEntry(); entry != null; entry = entries.getNextEntry()) {
                 final String path = entry.getName().replace('\\', '/');
@@ -231,14 +283,19 @@ public final class SrtmDownloader {
                     continue;
                 }
                 final String tile = fileName.substring(0, fileName.indexOf('.')).toUpperCase(Locale.ROOT);
+                if (!TILE_NAME.matcher(tile).matches()) {
+                    // e.g. readme.hgt - only tiles go into the folder
+                    continue;
+                }
                 final Path target = folder.resolve(tile + HGT);
                 final Optional<SrtmFormat> existing = SrtmTile.format(target);
-                if (existing.equals(Optional.of(SrtmFormat.SRTM1))) {
-                    // never worse: an SRTM3 block mustn't replace an SRTM1 tile (plan 7) - not even copied
+                if (existing.equals(Optional.of(SrtmFormat.SRTM1)) || (existing.isPresent() && sourceFormat == SrtmFormat.SRTM3)) {
+                    // never worse: an SRTM3 block mustn't replace an SRTM1 tile (plan 7), and an existing tile needs no
+                    // copy of the same quality - not even copied
                     continue;
                 }
                 // written under another name first - a broken download leaves no half .hgt file
-                final Path part = folder.resolve(tile + HGT + ".part");
+                final Path part = folder.resolve(tile + HGT + PART);
                 try {
                     Files.copy(entries, part, StandardCopyOption.REPLACE_EXISTING);
                     // missing or broken: replaced; SRTM3: replaced by SRTM1 only

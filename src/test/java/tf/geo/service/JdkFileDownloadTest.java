@@ -41,6 +41,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -58,6 +59,10 @@ class JdkFileDownloadTest {
     @BeforeEach
     void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/missing", exchange -> {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
         server.createContext("/ok", exchange -> {
             final byte[] body = {1, 2, 3, 4};
             exchange.sendResponseHeaders(200, body.length);
@@ -96,6 +101,14 @@ class JdkFileDownloadTest {
         final Path target = temp.resolve("ok.zip");
         new JdkFileDownload(Duration.ofSeconds(5)).download(uri("/ok"), target);
         assertArrayEquals(new byte[] {1, 2, 3, 4}, Files.readAllBytes(target));
+    }
+
+    @Test
+    void notFoundIsItsOwnException() {
+        // plan 8: ESA has no tile there - not a temporary problem
+        final FileNotOnServerException ex = assertThrows(FileNotOnServerException.class,
+                () -> new JdkFileDownload(Duration.ofSeconds(5)).download(uri("/missing"), temp.resolve("missing.zip")));
+        assertEquals(uri("/missing"), ex.uri());
     }
 
     @Test

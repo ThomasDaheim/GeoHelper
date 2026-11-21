@@ -30,6 +30,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
@@ -67,6 +69,72 @@ class SrtmDownloaderTest {
             }
         }
         return bytes.toByteArray();
+    }
+
+    @Test
+    void onlyTileNamesAreWritten() throws IOException {
+        // plan 8: readme.hgt became README.hgt - only [NS]dd[EW]ddd counts; lower case and sub folders stay fine
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target,
+                zip("L32/N46E011.hgt", "n47e011.SRTMGL1.hgt", "readme.hgt")));
+
+        downloader.download(List.of("N46E011"), SrtmFormat.SRTM3, folder, (done, total) -> { });
+
+        assertEquals(List.of("N46E011.hgt", "N47E011.hgt"), filesIn(folder));
+    }
+
+    @Test
+    void leftoversAreRemovedOthersStay() throws IOException {
+        // plan 8: a killed process left .part files and temporary zips behind
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        final Path tempFolder = Files.createDirectory(temp.resolve("tmp"));
+        final Instant now = Instant.parse("2026-11-21T12:00:00Z");
+        final FileTime old = FileTime.from(now.minusSeconds(2 * 3600));
+        final FileTime fresh = FileTime.from(now.minusSeconds(300));
+        Files.setLastModifiedTime(Files.write(folder.resolve("N46E011.hgt.part"), new byte[1]), old);
+        Files.setLastModifiedTime(Files.write(folder.resolve("N47E011.hgt.part"), new byte[1]), fresh);
+        Files.setLastModifiedTime(Files.write(folder.resolve("notes.part"), new byte[1]), old);
+        Files.setLastModifiedTime(Files.write(tempFolder.resolve("geohelper-srtm-1.zip"), new byte[1]), old);
+        Files.setLastModifiedTime(Files.write(tempFolder.resolve("other.zip"), new byte[1]), old);
+
+        SrtmDownloader.removeLeftovers(folder, tempFolder, now);
+
+        assertEquals(List.of("N47E011.hgt.part", "notes.part"), filesIn(folder));
+        assertEquals(List.of("other.zip"), filesIn(tempFolder));
+    }
+
+    @Test
+    void existingSrtm3TilesOfABlockAreNotCopied() throws IOException {
+        // plan 8: each existing tile of a block was copied to .part and thrown away - about 65 MB per block. A non-empty
+        // folder in the way of the .part file makes any copy fail.
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        Files.write(folder.resolve("N47E011.hgt"), TILE);
+        Files.write(Files.createDirectory(folder.resolve("N47E011.hgt.part")).resolve("x"), new byte[1]);
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target, zip("L32/N46E011.hgt", "L32/N47E011.hgt")));
+
+        final SrtmDownloader.Result result = downloader.download(List.of("N46E011"), SrtmFormat.SRTM3, folder, (done, total) -> { });
+
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals(List.of("N46E011"), result.present());
+    }
+
+    @Test
+    void notFoundIsReported() throws IOException {
+        // plan 8: GeoTagger remembers tiles ESA doesn't have - the downloader tells them apart from other failures
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> {
+            if (uri.toString().contains("N43E008")) {
+                throw new FileNotOnServerException(uri);
+            }
+            Files.write(target, zipWith(TILE1, "N43E009.SRTMGL1.hgt"));
+        });
+
+        final SrtmDownloader.Result result = downloader.download(List.of("N43E008", "N43E009"), SrtmFormat.SRTM1, folder,
+                (done, total) -> { });
+
+        assertEquals(List.of("N43E008"), result.notOnServer());
+        assertEquals(List.of("N43E009"), result.present());
+        assertTrue(result.problems().get(0).contains("N43E008"), result.problems().get(0));
     }
 
     @Test
