@@ -98,6 +98,22 @@ public final class SrtmElevationProvider implements ElevationProvider {
                 .toList();
     }
 
+    /**
+     * @param positions positions to look up
+     * @param wanted the format to download
+     * @return the tiles there as SRTM3 only, although SRTM1 is wanted and ESA has it - sorted, each once; empty if
+     * SRTM3 is wanted (plan 7: SRTM3 is too coarse on steep slopes)
+     */
+    public List<String> upgradableTiles(List<LatLon> positions, SrtmFormat wanted) {
+        return positions.stream()
+                .map(SrtmTile::name)
+                .distinct()
+                .sorted()
+                .filter(name -> wanted.forTile(name) == SrtmFormat.SRTM1)
+                .filter(name -> SrtmTile.format(file(name)).equals(Optional.of(SrtmFormat.SRTM3)))
+                .toList();
+    }
+
     private Optional<SrtmTile> tile(String name) {
         final SrtmTile cached = tiles.get(name);
         if (cached != null) {

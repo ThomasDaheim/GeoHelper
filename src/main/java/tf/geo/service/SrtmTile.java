@@ -72,14 +72,27 @@ public final class SrtmTile {
      * @return true if it exists with the size of an SRTM1 or SRTM3 tile
      */
     public static boolean isTile(Path file) {
+        return format(file).isPresent();
+    }
+
+    /**
+     * Cheap check without reading the file - e.g. whether an SRTM3 tile could be replaced by SRTM1.
+     *
+     * @param file a .hgt file
+     * @return SRTM1 or SRTM3 by the size of the file - empty if it doesn't exist or has another size
+     */
+    public static Optional<SrtmFormat> format(Path file) {
         try {
             if (!Files.isRegularFile(file)) {
-                return false;
+                return Optional.empty();
             }
             final long bytes = Files.size(file);
-            return bytes == 2L * SRTM1_SIZE * SRTM1_SIZE || bytes == 2L * SRTM3_SIZE * SRTM3_SIZE;
+            if (bytes == 2L * SRTM1_SIZE * SRTM1_SIZE) {
+                return Optional.of(SrtmFormat.SRTM1);
+            }
+            return bytes == 2L * SRTM3_SIZE * SRTM3_SIZE ? Optional.of(SrtmFormat.SRTM3) : Optional.empty();
         } catch (IOException ex) {
-            return false;
+            return Optional.empty();
         }
     }
 

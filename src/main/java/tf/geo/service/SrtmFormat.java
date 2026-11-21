@@ -30,9 +30,13 @@ package tf.geo.service;
  */
 public enum SrtmFormat {
     /** 1 arc second (about 30 m), one zip per tile from ESA - only between 60° N and 56° S, about 25 MB per tile */
-    SRTM1("SRTM1 - 30 m, ESA"),
+    SRTM1("SRTM1 - 30 m, ESA (SRTM3 outside 60° N - 56° S)"),
     /** 3 arc seconds (about 90 m), blocks of tiles from viewfinderpanoramas - with gaps filled, also further north */
     SRTM3("SRTM3 - 90 m, viewfinderpanoramas");
+
+    // ESA's SRTM1: tiles with their south-west corner from 56° S to 59° N
+    private static final int SRTM1_SOUTH = -56;
+    private static final int SRTM1_NORTH = 59;
 
     private final String label;
 
@@ -45,5 +49,23 @@ public enum SrtmFormat {
      */
     public String label() {
         return label;
+    }
+
+    /**
+     * @param tile name like N46E011
+     * @return true if ESA has SRTM1 for it - from 60° N to 56° S
+     */
+    public static boolean srtm1Covers(String tile) {
+        final int value = Integer.parseInt(tile.substring(1, 3));
+        final int latitude = Character.toUpperCase(tile.charAt(0)) == 'S' ? -value : value;
+        return latitude >= SRTM1_SOUTH && latitude <= SRTM1_NORTH;
+    }
+
+    /**
+     * @param tile name like N46E011
+     * @return the format to get for this tile - SRTM1 falls back to SRTM3 outside its coverage (plan 7)
+     */
+    public SrtmFormat forTile(String tile) {
+        return this == SRTM1 && !srtm1Covers(tile) ? SRTM3 : this;
     }
 }

@@ -48,17 +48,76 @@ class SrtmDownloaderTest {
     // an SRTM3 tile with 0 m everywhere - the size makes it a tile
     private static final byte[] TILE = new byte[2 * SrtmTestFiles.SRTM3 * SrtmTestFiles.SRTM3];
 
+    // an SRTM1 tile with 0 m everywhere
+    private static final byte[] TILE1 = new byte[2 * SrtmTestFiles.SRTM1 * SrtmTestFiles.SRTM1];
+
     // a zip with these entries, .hgt entries with the size of an SRTM3 tile, others with a few bytes
     private static byte[] zip(String... entries) throws IOException {
+        return zipWith(TILE, entries);
+    }
+
+    // a zip with these entries, .hgt entries with this content
+    private static byte[] zipWith(byte[] tile, String... entries) throws IOException {
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
             for (String entry : entries) {
                 zip.putNextEntry(new ZipEntry(entry));
-                zip.write(entry.endsWith(".hgt") ? TILE : new byte[] {1, 2, 3});
+                zip.write(entry.endsWith(".hgt") ? tile : new byte[] {1, 2, 3});
                 zip.closeEntry();
             }
         }
         return bytes.toByteArray();
+    }
+
+    @Test
+    void srtm1OutsideCoverageFallsBackToSrtm3() {
+        // plan 7: ESA has SRTM1 only from 60° N to 56° S - further north the SRTM3 block of viewfinderpanoramas
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> { });
+        assertEquals(List.of(URI.create("https://step.esa.int/auxdata/dem/SRTMGL1/N46E011.SRTMGL1.hgt.zip"),
+                URI.create("https://viewfinderpanoramas.org/dem3/" + SrtmDownloader.srtm3Block(63, 19) + ".zip")),
+                downloader.sources(List.of("N46E011", "N63E019"), SrtmFormat.SRTM1));
+    }
+
+    @Test
+    void srtm1ReplacesSrtm3() throws IOException {
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        Files.write(folder.resolve("N46E011.hgt"), TILE);
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target, zipWith(TILE1, "N46E011.SRTMGL1.hgt")));
+
+        final SrtmDownloader.Result result = downloader.download(List.of("N46E011"), SrtmFormat.SRTM1, folder, (done, total) -> { });
+
+        assertEquals(TILE1.length, Files.size(folder.resolve("N46E011.hgt")));
+        assertEquals(List.of("N46E011"), result.present());
+        assertTrue(result.missing().isEmpty());
+    }
+
+    @Test
+    void srtm3BlockKeepsExistingSrtm1Tiles() throws IOException {
+        // a block has many tiles - it must not make an SRTM1 tile worse
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        Files.write(folder.resolve("N47E011.hgt"), TILE1);
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target, zip("L32/N46E011.hgt", "L32/N47E011.hgt")));
+
+        final SrtmDownloader.Result result = downloader.download(List.of("N46E011"), SrtmFormat.SRTM3, folder, (done, total) -> { });
+
+        assertEquals(TILE1.length, Files.size(folder.resolve("N47E011.hgt")));
+        assertEquals(TILE.length, Files.size(folder.resolve("N46E011.hgt")));
+        assertEquals(List.of("N46E011"), result.present());
+    }
+
+    @Test
+    void failedUpgradeKeepsSrtm3() throws IOException {
+        final Path folder = Files.createDirectory(temp.resolve("srtm"));
+        Files.write(folder.resolve("N46E011.hgt"), TILE);
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> {
+            throw new IOException("Download of " + uri + " failed (HTTP 503)");
+        });
+
+        final SrtmDownloader.Result result = downloader.download(List.of("N46E011"), SrtmFormat.SRTM1, folder, (done, total) -> { });
+
+        assertEquals(TILE.length, Files.size(folder.resolve("N46E011.hgt")));
+        assertEquals(List.of("N46E011"), result.missing());
+        assertTrue(result.problems().get(0).contains("HTTP 503"), result.problems().get(0));
     }
 
     private static List<String> filesIn(Path folder) throws IOException {
@@ -137,7 +196,7 @@ class SrtmDownloaderTest {
             if (uri.toString().contains("N43E008")) {
                 throw new IOException("Download of " + uri + " failed (HTTP 404)");
             }
-            Files.write(target, zip("N43E009.SRTMGL1.hgt"));
+            Files.write(target, zipWith(TILE1, "N43E009.SRTMGL1.hgt"));
         });
 
         final SrtmDownloader.Result result = downloader.download(List.of("N43E008", "N43E009"), SrtmFormat.SRTM1, folder,
@@ -154,11 +213,11 @@ class SrtmDownloaderTest {
         // final review 5b: a truncated file must not block the tile forever
         final Path folder = Files.createDirectory(temp.resolve("srtm"));
         Files.write(folder.resolve("N46E011.hgt"), new byte[] {1, 2, 3});
-        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target, zip("N46E011.SRTMGL1.hgt")));
+        final SrtmDownloader downloader = new SrtmDownloader((uri, target) -> Files.write(target, zipWith(TILE1, "N46E011.SRTMGL1.hgt")));
 
         final SrtmDownloader.Result result = downloader.download(List.of("N46E011"), SrtmFormat.SRTM1, folder, (done, total) -> { });
 
-        assertEquals(TILE.length, Files.size(folder.resolve("N46E011.hgt")));
+        assertEquals(TILE1.length, Files.size(folder.resolve("N46E011.hgt")));
         assertEquals(List.of("N46E011"), result.present());
     }
 

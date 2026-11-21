@@ -75,6 +75,26 @@ class SrtmElevationProviderTest {
     }
 
     @Test
+    void upgradableAreSrtm3TilesWhenSrtm1IsWanted() throws IOException {
+        // plan 7: SRTM3 is too coarse on steep slopes - with SRTM1 wanted, an SRTM3 tile may be replaced
+        SrtmTestFiles.write(folder, "N45E011", SrtmTestFiles.SRTM1, (row, col) -> 0);
+        final SrtmElevationProvider provider = new SrtmElevationProvider(folder, SrtmInterpolation.BILINEAR);
+        final List<LatLon> positions = List.of(new LatLon(46.5, 11.5), new LatLon(45.5, 11.5), new LatLon(44.5, 11.5),
+                new LatLon(46.6, 11.6));
+
+        assertEquals(List.of("N46E011"), provider.upgradableTiles(positions, SrtmFormat.SRTM1));
+        assertEquals(List.of(), provider.upgradableTiles(positions, SrtmFormat.SRTM3));
+    }
+
+    @Test
+    void noUpgradeOutsideSrtm1Coverage() throws IOException {
+        SrtmTestFiles.write(folder, "N63E019", SrtmTestFiles.SRTM3, (row, col) -> 0);
+        final SrtmElevationProvider provider = new SrtmElevationProvider(folder, SrtmInterpolation.BILINEAR);
+
+        assertEquals(List.of(), provider.upgradableTiles(List.of(new LatLon(63.5, 19.5)), SrtmFormat.SRTM1));
+    }
+
+    @Test
     void nearestTakesTheClosestGridPoint() throws GeoServiceException {
         assertEquals(1299, elevation(at(600.25, 300.75, SrtmTestFiles.SRTM3), SrtmInterpolation.NEAREST), 1e-9);
     }

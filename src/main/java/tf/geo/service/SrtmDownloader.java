@@ -36,6 +36,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.zip.ZipEntry;
@@ -82,7 +83,8 @@ public final class SrtmDownloader {
     public List<URI> sources(List<String> tiles, SrtmFormat format) {
         final Set<URI> sources = new LinkedHashSet<>();
         for (String tile : tiles) {
-            if (format == SrtmFormat.SRTM1) {
+            // SRTM1 only where ESA has it - outside the SRTM3 block (plan 7)
+            if (format.forTile(tile) == SrtmFormat.SRTM1) {
                 sources.add(URI.create(SRTM1_URL + tile + ".SRTMGL1.hgt.zip"));
             } else {
                 final String block = srtm3Block(latitude(tile), longitude(tile));
@@ -93,14 +95,15 @@ public final class SrtmDownloader {
     }
 
     /**
-     * Downloads the zips and puts their .hgt files into the folder - valid tiles stay, broken ones are replaced, nothing
-     * is left half written. A failing download doesn't stop the others (e.g. ESA has no tiles of the open sea).
+     * Downloads the zips and puts their .hgt files into the folder - missing and broken tiles are written, SRTM3 tiles
+     * are replaced by SRTM1, an SRTM1 tile is never replaced by SRTM3; nothing is left half written. A failing download
+     * doesn't stop the others (e.g. ESA has no tiles of the open sea).
      *
      * @param tiles names like N46E011
-     * @param format SRTM1 or SRTM3
+     * @param format SRTM1 (SRTM3 outside 60° N - 56° S) or SRTM3
      * @param folder folder of the SRTM files
      * @param progress called with (files downloaded, files in total) after each download
-     * @return the tiles in the folder afterwards, the missing ones and why they are missing
+     * @return the tiles in the wanted format afterwards, the others and why they aren't
      * @throws IOException if the folder can't be created
      */
     public Result download(List<String> tiles, SrtmFormat format, Path folder, BiConsumer<Integer, Integer> progress)
@@ -128,7 +131,9 @@ public final class SrtmDownloader {
         final List<String> present = new ArrayList<>();
         final List<String> missing = new ArrayList<>();
         for (String tile : tiles) {
-            if (SrtmTile.isTile(folder.resolve(tile + HGT))) {
+            // in the wanted format afterwards - or better: SRTM1 where SRTM3 was wanted
+            final Optional<SrtmFormat> now = SrtmTile.format(folder.resolve(tile + HGT));
+            if (now.isPresent() && (now.get() == SrtmFormat.SRTM1 || format.forTile(tile) == SrtmFormat.SRTM3)) {
                 present.add(tile);
             } else {
                 missing.add(tile);
@@ -227,15 +232,19 @@ public final class SrtmDownloader {
                 }
                 final String tile = fileName.substring(0, fileName.indexOf('.')).toUpperCase(Locale.ROOT);
                 final Path target = folder.resolve(tile + HGT);
-                if (SrtmTile.isTile(target)) {
+                final Optional<SrtmFormat> existing = SrtmTile.format(target);
+                if (existing.equals(Optional.of(SrtmFormat.SRTM1))) {
+                    // never worse: an SRTM3 block mustn't replace an SRTM1 tile (plan 7) - not even copied
                     continue;
                 }
-                // written under another name first - a broken download leaves no half .hgt file; a broken file
-                // (e.g. truncated) is replaced
+                // written under another name first - a broken download leaves no half .hgt file
                 final Path part = folder.resolve(tile + HGT + ".part");
                 try {
                     Files.copy(entries, part, StandardCopyOption.REPLACE_EXISTING);
-                    Files.move(part, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                    // missing or broken: replaced; SRTM3: replaced by SRTM1 only
+                    if (existing.isEmpty() || SrtmTile.format(part).equals(Optional.of(SrtmFormat.SRTM1))) {
+                        Files.move(part, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                    }
                 } finally {
                     Files.deleteIfExists(part);
                 }

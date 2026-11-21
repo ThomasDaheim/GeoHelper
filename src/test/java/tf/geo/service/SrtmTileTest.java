@@ -25,11 +25,42 @@
  */
 package tf.geo.service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import tf.geo.LatLon;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SrtmTileTest {
+    @Test
+    void formatBySize(@TempDir Path folder) throws IOException {
+        // plan 7: SRTM3 tiles may be upgraded to SRTM1 - the format comes from the size, the file isn't read
+        final Path srtm3 = SrtmTestFiles.write(folder, "N46E011", SrtmTestFiles.SRTM3, (row, col) -> 0);
+        final Path srtm1 = SrtmTestFiles.write(folder, "N47E011", SrtmTestFiles.SRTM1, (row, col) -> 0);
+        final Path broken = Files.write(folder.resolve("N48E011.hgt"), new byte[] {1, 2, 3});
+
+        assertEquals(Optional.of(SrtmFormat.SRTM3), SrtmTile.format(srtm3));
+        assertEquals(Optional.of(SrtmFormat.SRTM1), SrtmTile.format(srtm1));
+        assertEquals(Optional.empty(), SrtmTile.format(broken));
+        assertEquals(Optional.empty(), SrtmTile.format(folder.resolve("N49E011.hgt")));
+    }
+
+    @Test
+    void srtm1CoversSixtyNorthToFiftySixSouth() {
+        assertTrue(SrtmFormat.srtm1Covers("N59E010"));
+        assertFalse(SrtmFormat.srtm1Covers("N60E010"));
+        assertTrue(SrtmFormat.srtm1Covers("S56W070"));
+        assertFalse(SrtmFormat.srtm1Covers("S57W070"));
+        assertEquals(SrtmFormat.SRTM3, SrtmFormat.SRTM1.forTile("N63E019"));
+        assertEquals(SrtmFormat.SRTM1, SrtmFormat.SRTM1.forTile("N46E011"));
+        assertEquals(SrtmFormat.SRTM3, SrtmFormat.SRTM3.forTile("N46E011"));
+    }
+
     @Test
     void namesFollowTheSouthWestCorner() {
         assertEquals("N46E011", SrtmTile.name(new LatLon(46.67, 11.16)));
