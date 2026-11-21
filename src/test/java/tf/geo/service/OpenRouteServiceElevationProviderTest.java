@@ -25,6 +25,7 @@
  */
 package tf.geo.service;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -99,6 +100,14 @@ class OpenRouteServiceElevationProviderTest {
                 () -> ors(FakeTransport.answering(429, "{}")).elevations(List.of(MERAN))).kind());
         assertEquals(GeoServiceException.Kind.RETRYABLE, assertThrows(GeoServiceException.class,
                 () -> ors(FakeTransport.failing()).elevations(List.of(MERAN))).kind());
+    }
+
+    @Test
+    void unreachableWithoutMessageNamesTheException() {
+        // plan 8: an exception without text ended in "openrouteservice not reachable: null"
+        final GeoServiceException ex = assertThrows(GeoServiceException.class,
+                () -> ors(FakeTransport.failingWith(new IOException())).elevations(List.of(MERAN)));
+        assertTrue(ex.getMessage().endsWith("IOException"), ex.getMessage());
     }
 
     @Test

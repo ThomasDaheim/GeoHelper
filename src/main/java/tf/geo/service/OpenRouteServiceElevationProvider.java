@@ -108,7 +108,7 @@ public final class OpenRouteServiceElevationProvider implements ElevationProvide
         try {
             response = transport.post(single ? POINT_URL : LINE_URL, body.toString(), Map.of("Authorization", apiKey));
         } catch (IOException ex) {
-            throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "openrouteservice not reachable: " + ex.getMessage(), ex);
+            throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "openrouteservice not reachable: " + GeoServiceException.describe(ex), ex);
         }
         final int status = response.status();
         // what openrouteservice says - appended to our messages (plan 7)

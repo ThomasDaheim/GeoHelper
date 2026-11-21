@@ -44,7 +44,7 @@ import tf.geo.LatLon;
 /**
  * Reverse geocoding with GeoNames' findNearbyPlaceName - see https://www.geonames.org/export/web-services.html.
  * Needs a (free) GeoNames account enabled for the web services. A district of a city (feature code PPLX) becomes the
- * sublocation, if it is the nearest place. Historical, abandoned and destroyed places (PPLCH, PPLH, PPLQ, PPLW) are
+ * sublocation, if it is the nearest place - with the city nearest to the district as its city. Historical, abandoned and destroyed places (PPLCH, PPLH, PPLQ, PPLW) are
  * ignored. An answer with districts only gets the town from a second request for towns only.
  */
 public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
@@ -117,7 +117,7 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
         try {
             response = transport.get(uri);
         } catch (IOException ex) {
-            throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "GeoNames not reachable: " + ex.getMessage(), ex);
+            throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "GeoNames not reachable: " + GeoServiceException.describe(ex), ex);
         }
         final int status = response.status();
         if (status >= 500) {
@@ -125,7 +125,14 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
         }
         if (status != 200) {
             // e.g. 401 for an unknown user - GeoNames tells the reason in the body
-            parseStatus(response.body());
+            try {
+                parseStatus(response.body());
+            } catch (GeoServiceException ex) {
+                if (!(ex.getCause() instanceof JsonProcessingException)) {
+                    throw ex;
+                }
+                // no JSON, e.g. the error page of a proxy - the status says more (plan 8)
+            }
             throw new GeoServiceException(GeoServiceException.Kind.FAILED, "GeoNames request failed (HTTP " + status + ")");
         }
         return places(response.body());
@@ -203,8 +210,8 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
     }
 
     /**
-     * All places of the answer to choose from: first the best answer (see parse()), then each district with the
-     * nearest city and each city without district, by distance - without duplicates.
+     * All places of the answer to choose from: first the best answer (see parse()), then each district with the city
+     * nearest to it and each city without district, by distance - without duplicates.
      *
      * @param json answer of GeoNames with the nearest places, nearest first
      * @return the places, empty if GeoNames found none
@@ -249,15 +256,14 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
         final JsonNode area = city != null ? city : nearest;
 
         final List<NearbyPlace> nearby = new ArrayList<>();
-        final Place best = new Place(text(area, "countryCode"), text(area, "countryName"), text(area, "adminName1"), cityName,
-                isDistrict(nearest) ? text(nearest, "name") : null);
+        final Place best = isDistrict(nearest) ? district(nearest, places, city)
+                : new Place(text(area, "countryCode"), text(area, "countryName"), text(area, "adminName1"), cityName, null);
         if (!best.isEmpty()) {
             nearby.add(new NearbyPlace(best, distance(isDistrict(nearest) || city == null ? nearest : city)));
         }
         for (JsonNode place : places) {
             final Place candidate = isDistrict(place)
-                    ? new Place(text(area, "countryCode"), text(area, "countryName"), text(area, "adminName1"), cityName,
-                            text(place, "name"))
+                    ? district(place, places, city)
                     : new Place(text(place, "countryCode"), text(place, "countryName"), text(place, "adminName1"),
                             text(place, "name"), null);
             if (!candidate.isEmpty() && nearby.stream().noneMatch(known -> known.place().equals(candidate))) {
@@ -265,6 +271,51 @@ public final class GeoNamesReverseGeocoder implements ReverseGeocoder {
             }
         }
         return List.copyOf(nearby);
+    }
+
+    /**
+     * A district with the city it belongs to: the city of the answer nearest to the district itself (plan 8 - Rondò is
+     * a district of Sesto San Giovanni, not of Milan, although Milan is nearer to the photo). Without coordinates of the
+     * district or of the cities the city nearest to the photo; without any city country and state of the district.
+     */
+    private static Place district(JsonNode district, List<JsonNode> places, JsonNode nearestCity) {
+        JsonNode city = nearestCity;
+        final Optional<double[]> at = coordinates(district);
+        if (at.isPresent()) {
+            double best = Double.MAX_VALUE;
+            for (JsonNode place : places) {
+                final Optional<double[]> other = coordinates(place);
+                if (!isDistrict(place) && other.isPresent()) {
+                    final double distance = squaredDistance(at.get(), other.get());
+                    if (distance < best) {
+                        best = distance;
+                        city = place;
+                    }
+                }
+            }
+        }
+        final JsonNode area = city != null ? city : district;
+        return new Place(text(area, "countryCode"), text(area, "countryName"), text(area, "adminName1"),
+                city == null ? null : text(city, "name"), text(district, "name"));
+    }
+
+    // lat / lng of a place - GeoNames sends them as text
+    private static Optional<double[]> coordinates(JsonNode place) {
+        try {
+            final String lat = text(place, "lat");
+            final String lng = text(place, "lng");
+            return lat == null || lng == null ? Optional.empty()
+                    : Optional.of(new double[] {Double.parseDouble(lat), Double.parseDouble(lng)});
+        } catch (NumberFormatException ex) {
+            return Optional.empty();
+        }
+    }
+
+    // enough to compare distances within 10 km: degrees of longitude shrink with the latitude
+    private static double squaredDistance(double[] from, double[] to) {
+        final double north = to[0] - from[0];
+        final double east = (to[1] - from[1]) * Math.cos(Math.toRadians(from[0]));
+        return north * north + east * east;
     }
 
     private static boolean isDistrict(JsonNode place) {

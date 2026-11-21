@@ -25,6 +25,7 @@
  */
 package tf.geo.service;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,7 @@ import tf.geo.LatLon;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MapboxReverseGeocoderTest {
     // shaped like the example of the Mapbox Geocoding v6 documentation, reduced to what is read
@@ -115,5 +117,13 @@ class MapboxReverseGeocoderTest {
                 () -> geocoder("de", FakeTransport.answering(422, "{}")).reverse(position)).kind());
         assertEquals(GeoServiceException.Kind.RETRYABLE, assertThrows(GeoServiceException.class,
                 () -> geocoder("de", FakeTransport.failing()).reverse(position)).kind());
+    }
+
+    @Test
+    void unreachableWithoutMessageNamesTheException() {
+        // plan 8: an exception without text ended in "Mapbox not reachable: null"
+        final GeoServiceException ex = assertThrows(GeoServiceException.class,
+                () -> geocoder("de", FakeTransport.failingWith(new IOException())).reverse(new LatLon(46.67, 11.16)));
+        assertTrue(ex.getMessage().endsWith("IOException"), ex.getMessage());
     }
 }

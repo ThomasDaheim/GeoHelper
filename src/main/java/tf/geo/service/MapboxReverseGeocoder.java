@@ -70,7 +70,7 @@ public final class MapboxReverseGeocoder implements ReverseGeocoder {
         try {
             response = transport.get(requestUri(position));
         } catch (IOException ex) {
-            throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "Mapbox not reachable: " + ex.getMessage(), ex);
+            throw new GeoServiceException(GeoServiceException.Kind.RETRYABLE, "Mapbox not reachable: " + GeoServiceException.describe(ex), ex);
         }
         final int status = response.status();
         if (status == 401 || status == 403) {

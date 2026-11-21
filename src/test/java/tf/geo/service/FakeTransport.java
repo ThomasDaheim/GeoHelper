@@ -67,7 +67,15 @@ final class FakeTransport implements HttpTransport {
      * @return a transport failing always with an IOException, like a lost connection
      */
     static FakeTransport failing() {
-        return new FakeTransport(List.of(), new IOException("connection reset"));
+        return failingWith(new IOException("connection reset"));
+    }
+
+    /**
+     * @param failure what every request throws
+     * @return a transport failing always with this exception
+     */
+    static FakeTransport failingWith(IOException failure) {
+        return new FakeTransport(List.of(), failure);
     }
 
     /**

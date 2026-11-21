@@ -25,6 +25,7 @@
  */
 package tf.geo.service;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
@@ -225,6 +226,55 @@ class GeoNamesReverseGeocoderTest {
     void unknownUserIsConfiguration() {
         assertEquals(GeoServiceException.Kind.CONFIGURATION, assertThrows(GeoServiceException.class, () -> geocoder(
                 FakeTransport.answering(200, status(10, "user account not enabled to use the free webservice"))).reverse(MERAN)).kind());
+    }
+
+    @Test
+    void unreachableWithoutMessageNamesTheException() {
+        // plan 8: an exception without text ended in "GeoNames not reachable: null"
+        final GeoServiceException ex = assertThrows(GeoServiceException.class,
+                () -> geocoder(FakeTransport.failingWith(new IOException())).reverse(MERAN));
+        assertTrue(ex.getMessage().endsWith("IOException"), ex.getMessage());
+    }
+
+    @Test
+    void districtBelongsToItsOwnCity() throws GeoServiceException {
+        // plan 8: Rondò is a district of Sesto San Giovanni - the city nearest to the photo (Milan) was taken instead
+        final String json = """
+                {"geonames": [
+                  {"name": "Rondò", "fcode": "PPLX", "distance": "0.4", "lat": "45.53", "lng": "9.23", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Mailand", "fcode": "PPLA", "distance": "1.0", "lat": "45.46", "lng": "9.19", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Sesto San Giovanni", "fcode": "PPLA3", "distance": "1.5", "lat": "45.53", "lng": "9.23", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"}]}
+                """;
+
+        final List<NearbyPlace> nearby = geocoder(FakeTransport.answering(200, json)).nearby(MERAN);
+
+        assertEquals(new Place("IT", "Italien", "Lombardei", "Sesto San Giovanni", "Rondò"), nearby.get(0).place());
+    }
+
+    @Test
+    void districtWithoutCoordinatesKeepsNearestCity() throws GeoServiceException {
+        // without lat/lng of the district there is nothing to measure - the city nearest to the photo as before
+        final String json = """
+                {"geonames": [
+                  {"name": "Rondò", "fcode": "PPLX", "distance": "0.4", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Mailand", "fcode": "PPLA", "distance": "1.0", "lat": "45.46", "lng": "9.19", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"},
+                  {"name": "Sesto San Giovanni", "fcode": "PPLA3", "distance": "1.5", "lat": "45.53", "lng": "9.23", "countryCode": "IT", "countryName": "Italien", "adminName1": "Lombardei"}]}
+                """;
+
+        final List<NearbyPlace> nearby = geocoder(FakeTransport.answering(200, json)).nearby(MERAN);
+
+        assertEquals(new Place("IT", "Italien", "Lombardei", "Mailand", "Rondò"), nearby.get(0).place());
+    }
+
+    @Test
+    void nonJsonErrorShowsTheStatus() {
+        // plan 8: an HTML error page of a proxy was reported as "invalid JSON" - the status says more
+        assertEquals(GeoServiceException.Kind.RETRYABLE, assertThrows(GeoServiceException.class, () -> geocoder(
+                FakeTransport.answering(503, "<html>Service Unavailable</html>")).reverse(MERAN)).kind());
+        final GeoServiceException ex = assertThrows(GeoServiceException.class, () -> geocoder(
+                FakeTransport.answering(400, "<html>Bad Request</html>")).reverse(MERAN));
+        assertEquals(GeoServiceException.Kind.FAILED, ex.kind());
+        assertTrue(ex.getMessage().contains("HTTP 400"), ex.getMessage());
     }
 
     @Test

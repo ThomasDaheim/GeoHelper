@@ -74,4 +74,13 @@ public final class GeoServiceException extends Exception {
     public Kind kind() {
         return kind;
     }
+
+    /**
+     * @param cause a problem, e.g. of the connection
+     * @return its message - or the simple name of its class if it has none, e.g. "ConnectException"
+     */
+    public static String describe(Throwable cause) {
+        final String message = cause.getMessage();
+        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+    }
 }
