@@ -68,6 +68,14 @@ public final class MapCallback {
     }
 
     /**
+     * @param markerId id of the marker the popup belongs to
+     * @param linkId id of the clicked link, see MapPopup.Link
+     */
+    public void popupLinkClicked(String markerId, String linkId) {
+        listener.popupLinkClicked(markerId, linkId);
+    }
+
+    /**
      * @param message debug output of the scripts
      */
     public void log(String message) {

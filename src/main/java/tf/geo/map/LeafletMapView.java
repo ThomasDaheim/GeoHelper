@@ -302,6 +302,23 @@ public class LeafletMapView extends StackPane {
     }
 
     /**
+     * Opens a popup at a marker - also if the marker is in a cluster right now. Only one popup is open at a time.
+     *
+     * @param markerId id of a shown marker - nothing happens for an unknown one
+     * @param popup what the popup shows; a click on one of its links is reported with MapListener.popupLinkClicked
+     */
+    public void showPopup(String markerId, MapPopup popup) {
+        whenReady("geoShowPopup(" + Js.string(markerId) + ", " + Js.string(popup.html()) + ");");
+    }
+
+    /**
+     * Closes the open popup, if any.
+     */
+    public void closePopup() {
+        whenReady("myMap.closePopup();");
+    }
+
+    /**
      * @param position new center of the map - the zoom stays
      */
     public void panTo(LatLon position) {

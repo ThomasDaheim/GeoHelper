@@ -54,4 +54,13 @@ public interface MapListener {
      */
     default void areaSelected(LatLon southWest, LatLon northEast, boolean shiftDown) {
     }
+
+    /**
+     * A link in a popup was clicked - see LeafletMapView.showPopup.
+     *
+     * @param markerId id of the marker the popup belongs to
+     * @param linkId id of the link, see MapPopup.Link
+     */
+    default void popupLinkClicked(String markerId, String linkId) {
+    }
 }

@@ -132,6 +132,62 @@ function geoFitBounds(coords) {
     }
 }
 
+// coordinates of the mouse and of the center - like GPXEditor's MousePosition and MapCenter (plan 9)
+var GeoCoordinates = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd: function () {
+        var div = L.DomUtil.create('div', 'geo-coordinates');
+        div.style.cssText = 'background: rgba(255, 255, 255, 0.8); padding: 2px 6px; font: 12px sans-serif; color: #333;';
+        L.DomEvent.disableClickPropagation(div);
+        this.mouse = L.DomUtil.create('div', '', div);
+        this.center = L.DomUtil.create('div', '', div);
+        this.mouse.textContent = 'Mouse: –';
+        return div;
+    }
+});
+var geoCoordinates = new GeoCoordinates().addTo(myMap);
+
+function geoFormatLatLng(latlng) {
+    var wrapped = myMap.wrapLatLng(latlng);
+    return wrapped.lat.toFixed(5) + ' | ' + wrapped.lng.toFixed(5);
+}
+function geoUpdateCenter() {
+    geoCoordinates.center.textContent = 'Center: ' + geoFormatLatLng(myMap.getCenter());
+}
+myMap.on('mousemove', function (e) {
+    geoCoordinates.mouse.textContent = 'Mouse: ' + geoFormatLatLng(e.latlng);
+});
+myMap.on('move', geoUpdateCenter);
+geoUpdateCenter();
+
+// both lines, for tests
+function geoCoordinatesText() {
+    return geoCoordinates.mouse.textContent + '\n' + geoCoordinates.center.textContent;
+}
+
+// popup at a marker - opened at its position, so that it works for a clustered marker as well (plan 9); its links
+// are reported to Java with the marker id
+var geoPopup = null;
+function geoShowPopup(id, html) {
+    var marker = geoMarkers[id];
+    if (!marker) {
+        return;
+    }
+    var content = document.createElement('div');
+    content.innerHTML = html;
+    var links = content.querySelectorAll('a[data-link]');
+    for (var i = 0; i < links.length; i++) {
+        links[i].addEventListener('click', function (e) {
+            e.preventDefault();
+            jscallback.popupLinkClicked(id, this.getAttribute('data-link'));
+        });
+    }
+    geoPopup = L.popup({ maxWidth: 400 }).setLatLng(marker.getLatLng()).setContent(content).openOn(myMap);
+}
+function geoPopupOpen() {
+    return geoPopup !== null && myMap.hasLayer(geoPopup);
+}
+
 // x / y relative to the map container - same as GPXEditor MapHelper.js
 function getLatLngForPoint(x, y) {
     var latlng = myMap.containerPointToLatLng(L.point(x, y));

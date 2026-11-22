@@ -46,4 +46,22 @@ public record LatLon(double latitude, double longitude) {
             throw new IllegalArgumentException("Longitude must be between -180 and 180: " + longitude);
         }
     }
+
+    // mean earth radius in meters (IUGG)
+    private static final double EARTH_RADIUS = 6_371_008.8;
+
+    /**
+     * Great circle distance (haversine) - also across the antimeridian the short way.
+     *
+     * @param other the other position
+     * @return the distance in meters
+     */
+    public double distanceTo(LatLon other) {
+        final double lat1 = Math.toRadians(latitude);
+        final double lat2 = Math.toRadians(other.latitude());
+        final double sinLat = Math.sin((lat2 - lat1) / 2);
+        final double sinLon = Math.sin(Math.toRadians(other.longitude() - longitude) / 2);
+        final double h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+        return 2 * EARTH_RADIUS * Math.asin(Math.min(1, Math.sqrt(h)));
+    }
 }

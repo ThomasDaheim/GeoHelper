@@ -42,4 +42,21 @@ class LatLonTest {
         assertThrows(IllegalArgumentException.class, () -> new LatLon(0, -181));
         assertThrows(IllegalArgumentException.class, () -> new LatLon(Double.NaN, 0));
     }
+
+    @Test
+    void distanceIsHaversine() {
+        // Munich - Milan, great circle with the mean earth radius
+        assertEquals(348_239, new LatLon(48.137, 11.575).distanceTo(new LatLon(45.464, 9.190)), 100);
+    }
+
+    @Test
+    void distanceAcrossTheAntimeridian() {
+        // plan 9: the short way, not around the world
+        assertEquals(22.24, new LatLon(0, 179.9999).distanceTo(new LatLon(0, -179.9999)), 0.5);
+    }
+
+    @Test
+    void samePositionIsZero() {
+        assertEquals(0.0, new LatLon(46.5, 11.5).distanceTo(new LatLon(46.5, 11.5)));
+    }
 }
