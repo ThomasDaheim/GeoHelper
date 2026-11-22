@@ -11,6 +11,9 @@ Geo related helper classes used in my other repos. Current version: v0.1
   * callbacks for marker clicks and drags, and for an area drawn with Ctrl + drag (`MapListener.areaSelected`, as GPXEditor's waypoint selection)
   * pixel position to lat / lon (e.g. for drag & drop and context menus)
   * the view stays in the world with the markers when zoomed far out
+  * coordinates of the mouse and of the map center in the upper left corner, like GPXEditor
+  * popups at a marker (`MapPopup`: title, rows, lines of links) - also for a clustered marker; a click on a link calls `MapListener.popupLinkClicked`
+* `tf.geo.LatLon`: a position; `distanceTo()` gives the great circle distance in meters
 * `tf.geo.service`: reverse geocoding behind the interface `ReverseGeocoder` - position to `Place` (country code, country, state, city, sublocation)
   * `GeoNamesReverseGeocoder`: GeoNames `findNearbyPlaceName` over https, needs a GeoNames user enabled for the web services; the nearest place that isn't a district is the city, a district (e.g. Eixample in Barcelona) the sublocation if it is the nearest place; historical, abandoned and destroyed places (e.g. dioceses, medieval counties) are ignored; an answer with districts only (e.g. at Milano Centrale) gets the town from a second request for towns only (`cities1000`)
   * `MapboxReverseGeocoder`: Mapbox Geocoding API v6, needs an access token; sublocation from locality or neighborhood
