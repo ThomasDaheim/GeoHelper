@@ -182,8 +182,16 @@ function geoShowPopup(id, html) {
             jscallback.popupLinkClicked(id, this.getAttribute('data-link'));
         });
     }
-    geoPopup = L.popup({ maxWidth: 400 }).setLatLng(marker.getLatLng()).setContent(content).openOn(myMap);
+    // closeOnClick false: Leaflet would close it on any click, also on a marker or a cluster the user opens to get to
+    // a file - GeoTagger moves the popup to the file the click selects (manual check of GeoTagger plan 10)
+    geoPopup = L.popup({ maxWidth: 400, closeOnClick: false }).setLatLng(marker.getLatLng()).setContent(content).openOn(myMap);
 }
+// a click on the map itself still closes it - clicks on markers don't reach the map (bubblingMouseEvents false)
+myMap.on('click', function () {
+    if (geoPopup !== null) {
+        myMap.closePopup(geoPopup);
+    }
+});
 function geoPopupOpen() {
     return geoPopup !== null && myMap.hasLayer(geoPopup);
 }
