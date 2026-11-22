@@ -319,6 +319,13 @@ public class LeafletMapView extends StackPane {
     }
 
     /**
+     * @return true while a popup opened with showPopup() is open - the user may have closed it meanwhile
+     */
+    public boolean isPopupOpen() {
+        return ready && Boolean.TRUE.equals(execScript("geoPopupOpen();"));
+    }
+
+    /**
      * @param position new center of the map - the zoom stays
      */
     public void panTo(LatLon position) {
