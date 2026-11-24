@@ -13,6 +13,7 @@ Geo related helper classes used in my other repos. Current version: v0.1
   * the view stays in the world with the markers when zoomed far out
   * coordinates of the mouse and of the map center in the upper left corner, like GPXEditor
   * popups at a marker (`MapPopup`: title, rows, lines of links) - also for a clustered marker; a click on a link calls `MapListener.popupLinkClicked`; clicks on markers and clusters leave it open, a click on the map closes it
+  * a position without a file as a circle (`showPosition` / `hidePosition`), e.g. a selected track point; `markerIdAt(x, y)` tells which marker is at a point of the map, e.g. for its context menu
 * `tf.geo.LatLon`: a position; `distanceTo()` gives the great circle distance in meters
 * `tf.geo.service`: reverse geocoding behind the interface `ReverseGeocoder` - position to `Place` (country code, country, state, city, sublocation)
   * `GeoNamesReverseGeocoder`: GeoNames `findNearbyPlaceName` over https, needs a GeoNames user enabled for the web services; the nearest place that isn't a district is the city, a district (e.g. Eixample in Barcelona) the sublocation if it is the nearest place; historical, abandoned and destroyed places (e.g. dioceses, medieval counties) are ignored; an answer with districts only (e.g. at Milano Centrale) gets the town from a second request for towns only (`cities1000`)

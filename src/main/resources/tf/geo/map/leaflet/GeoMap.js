@@ -196,6 +196,53 @@ function geoPopupOpen() {
     return geoPopup !== null && myMap.hasLayer(geoPopup);
 }
 
+// a position without a file, e.g. the selected track point (GeoTagger plan 12) - a circle, not draggable
+var geoPosition = null;
+function geoShowPosition(lat, lng) {
+    geoHidePosition();
+    geoPosition = L.circleMarker([lat, lng], { radius: 7, color: '#d000d0', weight: 2, fillColor: '#d000d0',
+        fillOpacity: 0.4, interactive: false }).addTo(myMap);
+}
+function geoHidePosition() {
+    if (geoPosition !== null) {
+        myMap.removeLayer(geoPosition);
+        geoPosition = null;
+    }
+}
+// for tests: "lat,lng" or null
+function geoPositionShown() {
+    if (geoPosition === null) {
+        return null;
+    }
+    var position = geoPosition.getLatLng();
+    return position.lat + ',' + position.lng;
+}
+
+// the id of the file marker whose icon is at this point of the map container - null for a cluster or the map
+// itself (GeoTagger plan 12)
+function geoMarkerIdAt(x, y) {
+    var element = document.elementFromPoint(x, y);
+    var icon = element ? element.closest('.leaflet-marker-icon') : null;
+    if (!icon) {
+        return null;
+    }
+    for (var id in geoMarkers) {
+        if (geoMarkers[id]._icon === icon) {
+            return id;
+        }
+    }
+    return null;
+}
+// for tests: the middle of a marker's icon in the map container, null if it isn't shown on its own
+function geoMarkerIconCenter(id) {
+    var marker = geoMarkers[id];
+    if (!marker || !marker._icon) {
+        return null;
+    }
+    var bounds = marker._icon.getBoundingClientRect();
+    return [bounds.left + bounds.width / 2, bounds.top + bounds.height / 2];
+}
+
 // x / y relative to the map container - same as GPXEditor MapHelper.js
 function getLatLngForPoint(x, y) {
     var latlng = myMap.containerPointToLatLng(L.point(x, y));

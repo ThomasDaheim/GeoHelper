@@ -319,6 +319,36 @@ public class LeafletMapView extends StackPane {
     }
 
     /**
+     * Marks a position without a file, e.g. a selected track point - a circle; replaces the one shown before.
+     *
+     * @param position where to show it
+     */
+    public void showPosition(LatLon position) {
+        whenReady("geoShowPosition(" + Js.number(position.latitude()) + ", " + Js.number(position.longitude()) + ");");
+    }
+
+    /**
+     * Removes the circle of showPosition(), if any.
+     */
+    public void hidePosition() {
+        whenReady("geoHidePosition();");
+    }
+
+    /**
+     * @param x x relative to the WebView, e.g. MouseEvent.getX()
+     * @param y y relative to the WebView
+     * @return the id of the marker whose icon is there - empty for a cluster, the map itself or while the map isn't
+     * ready
+     */
+    public Optional<String> markerIdAt(double x, double y) {
+        if (!ready) {
+            return Optional.empty();
+        }
+        return execScript("geoMarkerIdAt(" + Js.number(x) + ", " + Js.number(y) + ");") instanceof String id
+                ? Optional.of(id) : Optional.empty();
+    }
+
+    /**
      * @return true while a popup opened with showPopup() is open - the user may have closed it meanwhile
      */
     public boolean isPopupOpen() {
